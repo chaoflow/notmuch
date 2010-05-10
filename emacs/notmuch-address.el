@@ -48,8 +48,8 @@ line."
   (let* ((end (point))
 	 (beg (save-excursion
 		(re-search-backward "\\(\\`\\|[\n:,]\\)[ \t]*")
-		(goto-char (match-end 0))
-		(point)))
+		(match-end 0)
+		))
 	 (orig (buffer-substring-no-properties beg end))
 	 (completion-ignore-case t)
 	 (options (notmuch-address-options orig))

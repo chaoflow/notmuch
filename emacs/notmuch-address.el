@@ -47,9 +47,9 @@ line."
 (defun notmuch-address-expand-name ()
   (let* ((end (point))
 	 (beg (save-excursion
-		(re-search-backward "\\(\\`\\|[\n:,]\\)[ \t]*")
-		(match-end 0)
-		))
+		(save-match-data
+		  (re-search-backward "\\(\\`\\|[\n:,]\\)[ \t]*")
+		  (match-end 0))))
 	 (orig (buffer-substring-no-properties beg end))
 	 (completion-ignore-case t)
 	 (options (notmuch-address-options orig))

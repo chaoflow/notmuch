@@ -555,7 +555,7 @@ verify_part_json (GMimeMultipartSigned* mpsigned, GMimeCipherContext* ctx)
 	printf ("{");
 
 	/* status */
-	printf ("\"status\": %s\n", json_quote_str (ctx_quote, signerstatustostring(signer->status)));
+	printf ("\"status\": %s", json_quote_str (ctx_quote, signerstatustostring(signer->status)));
 
 	if (signer->status == GMIME_SIGNER_STATUS_GOOD)
 	{

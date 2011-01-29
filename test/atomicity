@@ -89,7 +89,7 @@ for ((i = 0; i < $outcount; i++)); do
         i=$(expr $end - 1)
     fi
 done
-test_expect_equal_failure "$(cat searchall)" "$(cat expectall)"
+test_expect_equal "$(cat searchall)" "$(cat expectall)"
 
 test_expect_success "detected $outcount>10 abort points" "test $outcount -gt 10"
 

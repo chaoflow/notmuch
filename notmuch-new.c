@@ -429,6 +429,12 @@ add_files_recursive (notmuch_database_t *notmuch,
 	    fflush (stdout);
 	}
 
+	status = notmuch_database_begin_atomic (notmuch);
+	if (status) {
+	    ret = status;
+	    goto DONE;
+	}
+
 	status = notmuch_database_add_message (notmuch, next, &message);
 	switch (status) {
 	/* success */
@@ -465,6 +471,12 @@ add_files_recursive (notmuch_database_t *notmuch,
 	case NOTMUCH_STATUS_UNBALANCED_FREEZE_THAW:
 	case NOTMUCH_STATUS_LAST_STATUS:
 	    INTERNAL_ERROR ("add_message returned unexpected value: %d",  status);
+	    goto DONE;
+	}
+
+	status = notmuch_database_end_atomic (notmuch);
+	if (status) {
+	    ret = status;
 	    goto DONE;
 	}
 

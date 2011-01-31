@@ -602,6 +602,44 @@ format_part_json (GMimeObject *part,
     if (GMIME_IS_MULTIPART (part)) {
 	GMimeMultipart *multipart = GMIME_MULTIPART (part);
 	int i;
+
+	if (params->cryptoctx && params->decryptflag && GMIME_IS_MULTIPART_ENCRYPTED (part)) {
+	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
+		/* this violates RFC 3156 section 4, so we won't bother with it. */
+		fprintf (stderr,
+			 "Error: %d part(s) for a multipart/encrypted message (should be exactly 2)\n",
+			 g_mime_multipart_get_count (multipart));
+	    } else {
+		GMimeMultipartEncrypted *encrypteddata = GMIME_MULTIPART_ENCRYPTED (part);
+		part = g_mime_multipart_encrypted_decrypt (encrypteddata, params->cryptoctx, &err);
+		printf (", \"encstatus\": [{\"status\": ");
+		if (part) {
+		    printf ("\"good\"");
+		} else {
+		    printf ("\"bad\"");
+		    fprintf (stderr, "Failed to decrypt part: %s\n", (err ? err->message : "no error explanation given"));
+		}
+		printf ("}]");
+		if (part) {
+		    const GMimeSignatureValidity *sigvalidity = g_mime_multipart_encrypted_get_signature_validity (encrypteddata);
+		    printf (", \"sigstatus\": [");
+		    if (!sigvalidity) {
+			fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
+		    } else {
+			format_sigstatus_json (sigvalidity);
+		    }
+		    printf ("]");
+		    printf (", \"content\": [\n");
+		    format_part_json (part, part_count, first, params);
+		    printf ("]}");
+
+		    if (err)
+			g_error_free (err);
+		    return;
+		}
+	    }
+	}
+
 	if (params->cryptoctx && GMIME_IS_MULTIPART_SIGNED (part)) {
 	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
 		/* this violates RFC 3156 section 5, so we won't bother with it. */
@@ -972,6 +1010,7 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 
     params.part = 0;
     params.cryptoctx = NULL;
+    params.decryptflag = FALSE;
 
     for (i = 0; i < argc && argv[i][0] == '-'; i++) {
 	if (strcmp (argv[i], "--") == 0) {
@@ -996,7 +1035,7 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 		fprintf (stderr, "Invalid value for --format: %s\n", opt);
 		return 1;
 	    }
-	} else if (STRNCMP_LITERAL (argv[i], "--verify") == 0 &&
+	} else if ((STRNCMP_LITERAL (argv[i], "--verify") == 0 || (STRNCMP_LITERAL (argv[i], "--decrypt") == 0)) &&
 		   params.cryptoctx == NULL) {
 	    session = g_object_new(null_session_get_type(), NULL);
 	    if (NULL == (params.cryptoctx = g_mime_gpg_context_new(session, "gpg")))
@@ -1005,6 +1044,8 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 		g_mime_gpg_context_set_always_trust((GMimeGpgContext*)params.cryptoctx, FALSE);
 	    g_object_unref (session);
 	    session = NULL;
+	    if (STRNCMP_LITERAL (argv[i], "--decrypt") == 0)
+		params.decryptflag = TRUE;
 	} else if (STRNCMP_LITERAL (argv[i], "--entire-thread") == 0) {
 	    entire_thread = 1;
 	} else if (STRNCMP_LITERAL (argv[i], "--part=") == 0) {

@@ -526,26 +526,14 @@ signerstatustostring (GMimeSignerStatus x)
 
 
 static void
-verify_part_json (GMimeMultipartSigned* mpsigned, GMimeCipherContext* ctx)
+format_sigstatus_json (const GMimeSignatureValidity* validity)
 {
-    GMimeSignatureValidity* validity = NULL;
-    GError* err = NULL;
     const GMimeSigner *signer = NULL;
     int first = 1;
     void *ctx_quote = NULL;
-    
-    validity = g_mime_multipart_signed_verify(mpsigned, ctx, &err);
-    if (!validity)
-    {
-	fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
-	
-	if (err)
-	    g_error_free(err);
-	return;
-    }
 
     ctx_quote = talloc_new (NULL);
-    signer = g_mime_signature_validity_get_signers(validity);
+    signer = g_mime_signature_validity_get_signers (validity);
     while (signer) {
 	if (first)
 	    first = 0;
@@ -567,24 +555,17 @@ verify_part_json (GMimeMultipartSigned* mpsigned, GMimeCipherContext* ctx)
 		printf (",\"created\": %d", (int) signer->created);
 	    if (signer->expires)
 		printf (",\"expires\": %d", (int) signer->expires);
-	    
 	} else {
 	    if (signer->keyid)
 		printf (",\"keyid\": %s", json_quote_str (ctx_quote, signer->keyid));
 	}
 	if (signer->errors != GMIME_SIGNER_ERROR_NONE) {
-            printf (", \"errors\": %x\n", signer->errors);
+	    printf (", \"errors\": %x\n", signer->errors);
 	}
-	
 	printf ("}");
 	signer = signer->next;
     }
     talloc_free (ctx_quote);
-    g_mime_signature_validity_free(validity);
-    /*
-      do we need to dispose of the GMimeSigner objects in some other way?
-      see https://bugzilla.gnome.org/show_bug.cgi?id=635936
-    */
 }
 
 static void
@@ -596,6 +577,7 @@ format_part_json (GMimeObject *part,
 {
     GMimeContentType *content_type;
     GMimeContentDisposition *disposition;
+    GError* err = NULL;
     void *ctx = talloc_new (NULL);
     GMimeStream *stream_memory = g_mime_stream_mem_new ();
     GByteArray *part_content;
@@ -627,10 +609,21 @@ format_part_json (GMimeObject *part,
 			 "Error: %d part(s) for a multipart/signed message (should be exactly 2)\n",
 			 g_mime_multipart_get_count (multipart));
 	    } else {
-		GMimeMultipartSigned *signeddata = GMIME_MULTIPART_SIGNED (part);
-		printf(", \"sigstatus\": [");
-		verify_part_json(signeddata, params->verifyctx);
-		printf("]");
+		/* For some reason the GMimeSignatureValidity returned
+		 * here is not a const (inconsistent with that
+		 * returned by
+		 * g_mime_multipart_encrypted_get_signature_validity,
+		 * and therefore needs to be properly disposed of.
+		 * Hopefully the API will become more consistent. */
+		GMimeSignatureValidity *sigvalidity = g_mime_multipart_signed_verify (GMIME_MULTIPART_SIGNED (part), params->verifyctx, &err);
+		printf (", \"sigstatus\": [");
+		if (!sigvalidity) {
+		    fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
+		} else {
+		    format_sigstatus_json (sigvalidity);
+		    g_mime_signature_validity_free (sigvalidity);
+		}
+		printf ("]");
 	    }
 	}
 
@@ -643,6 +636,8 @@ format_part_json (GMimeObject *part,
 
 	printf ("]}\n");
 
+       if (err)
+	   g_error_free (err);
 	return;
     }
 

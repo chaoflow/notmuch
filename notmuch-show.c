@@ -602,7 +602,7 @@ format_part_json (GMimeObject *part,
     if (GMIME_IS_MULTIPART (part)) {
 	GMimeMultipart *multipart = GMIME_MULTIPART (part);
 	int i;
-	if (params->verifyctx && GMIME_IS_MULTIPART_SIGNED (part)) {
+	if (params->cryptoctx && GMIME_IS_MULTIPART_SIGNED (part)) {
 	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
 		/* this violates RFC 3156 section 5, so we won't bother with it. */
 		fprintf (stderr,
@@ -615,7 +615,7 @@ format_part_json (GMimeObject *part,
 		 * g_mime_multipart_encrypted_get_signature_validity,
 		 * and therefore needs to be properly disposed of.
 		 * Hopefully the API will become more consistent. */
-		GMimeSignatureValidity *sigvalidity = g_mime_multipart_signed_verify (GMIME_MULTIPART_SIGNED (part), params->verifyctx, &err);
+		GMimeSignatureValidity *sigvalidity = g_mime_multipart_signed_verify (GMIME_MULTIPART_SIGNED (part), params->cryptoctx, &err);
 		printf (", \"sigstatus\": [");
 		if (!sigvalidity) {
 		    fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
@@ -971,7 +971,7 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
     GMimeSession* session = NULL;
 
     params.part = 0;
-    params.verifyctx = NULL;
+    params.cryptoctx = NULL;
 
     for (i = 0; i < argc && argv[i][0] == '-'; i++) {
 	if (strcmp (argv[i], "--") == 0) {
@@ -997,13 +997,12 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 		return 1;
 	    }
 	} else if (STRNCMP_LITERAL (argv[i], "--verify") == 0 &&
-		   params.verifyctx == NULL) {
+		   params.cryptoctx == NULL) {
 	    session = g_object_new(null_session_get_type(), NULL);
-    
-	    if (NULL == (params.verifyctx = g_mime_gpg_context_new(session, "gpg")))
+	    if (NULL == (params.cryptoctx = g_mime_gpg_context_new(session, "gpg")))
 		fprintf (stderr, "Failed to construct gpg context\n");
 	    else
-		g_mime_gpg_context_set_always_trust((GMimeGpgContext*)params.verifyctx, FALSE);
+		g_mime_gpg_context_set_always_trust((GMimeGpgContext*)params.cryptoctx, FALSE);
 	    g_object_unref (session);
 	    session = NULL;
 	} else if (STRNCMP_LITERAL (argv[i], "--entire-thread") == 0) {
@@ -1053,8 +1052,8 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
     notmuch_query_destroy (query);
     notmuch_database_close (notmuch);
 
-    if (params.verifyctx) 
-	g_object_unref(params.verifyctx);
+    if (params.cryptoctx)
+	g_object_unref(params.cryptoctx);
 
     return 0;
 }

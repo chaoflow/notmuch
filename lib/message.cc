@@ -29,6 +29,7 @@ struct _notmuch_message {
     notmuch_database_t *notmuch;
     Xapian::docid doc_id;
     int frozen;
+    notmuch_bool_t deleted;
     char *message_id;
     char *thread_id;
     char *in_reply_to;
@@ -98,6 +99,7 @@ _notmuch_message_create_for_document (const void *talloc_owner,
     message->doc_id = doc_id;
 
     message->frozen = 0;
+    message->deleted = FALSE;
     message->flags = 0;
 
     /* Each of these will be lazily created as needed. */
@@ -788,7 +790,10 @@ _notmuch_message_sync (notmuch_message_t *message)
 	return;
 
     db = static_cast <Xapian::WritableDatabase *> (message->notmuch->xapian_db);
-    db->replace_document (message->doc_id, message->doc);
+    if (message->deleted)
+	db->delete_document (message->doc_id);
+    else
+	db->replace_document (message->doc_id, message->doc);
 }
 
 /* Ensure that 'message' is not holding any file object open. Future

@@ -1,0 +1,116 @@
+#!/bin/bash
+
+test_description='PGP/MIME signature verification and decryption'
+. ./test-lib.sh
+
+add_gnupg_home ()
+{
+    local output
+    if [ ! -d ${GNUPGHOME} ]; then
+	#cp -a ../gnupghome ${GNUPGHOME}
+	mkdir -m 0700 "$GNUPGHOME"
+	gpg --import <../gnupg-secret-key.asc >"$GNUPGHOME"/import.log 2>&1
+	test_debug "cat $GNUPGHOME/import.log"
+	get_gpg_prng_arg >> "$GNUPGHOME"/gpg.conf
+    fi
+}
+
+get_gpg_prng_arg() {
+    if (gpg --quick-random --version >/dev/null 2>&1) ; then
+	echo quick-random
+    elif (gpg --debug-quick-random --version >/dev/null 2>&1) ; then
+	echo debug-quick-random
+    fi
+}
+
+add_gnupg_home
+
+# create a signed message
+sig_message_path="${MAIL_DIR}/signed-message"
+cat <<EOF >"$sig_message_path"
+Message-ID: <EePhogha5u@example.net>
+From: notmuchtest@example.net
+To: notmuchtest@example.net
+Subject: test message with PGP/MIME signature
+MIME-Version: 1.0
+Content-Type: multipart/signed; boundary="=-=-=";
+	micalg=pgp-sha1; protocol="application/pgp-signature"
+
+--=-=-=
+
+This is a test message with a PGP/MIME signature.
+Test test test...
+
+--=-=-=
+Content-Type: application/pgp-signature
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+
+iJwEAQECAAYFAk1Hv3AACgkQDu+3os6JEC0kCAP+LCDFjbPjtHwQAjw/6wQLtUiA
+NFTXT1rsk9t+HRg2DRvjjvv2iqKD56qsqOJk+f2KVucN19NpwAbTLFgE4NZsOdN0
+KByhwDM7lj7F47DHgBbGRl9OJNK0RIqYPwb/xQjdmumwmXZyFXCu4IoOSciY1i64
+SZdeBlTcFuWvkJhOMSI=
+=wUR9
+-----END PGP SIGNATURE-----
+--=-=-=--
+EOF
+
+# create an encrypted/signed message
+enc_message_path="${MAIL_DIR}/encrypted-message"
+cat <<EOF >"$enc_message_path"
+Message-ID: <WohKei0mae@example.net>
+From: notmuchtest@example.net
+To: notmuchtest@example.net
+Subject: encrypted/signed PGP/MIME test message
+MIME-Version: 1.0
+Content-Type: multipart/encrypted; boundary="=-=-=";
+	protocol="application/pgp-encrypted"
+
+--=-=-=
+Content-Type: application/pgp-encrypted
+
+Version: 1
+
+--=-=-=
+Content-Type: application/octet-stream
+
+-----BEGIN PGP MESSAGE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+
+hIwDaphxeHIYCdkBBAC/tukGRxLbys7gqLHAgN7OGYaOKuTSFM5yN865SzWksQp7
+hPxp16yB+eDztttfXtoPIai0lC7VjV58IUWD9kLas5qYFg2OaNmxVZ/irWMZpMwg
+z8RJixsr/HQV1OnxHvMWoG3PR7w8rpLJsLfOWFmGXPPXPklzSCJ9bONQmxQy7tLA
+XAH1dLBuxxNQYnpagiRxVHeg0HrZciY4WU5WMI72I7K1xfDZ79kF7AiP10Ror/AT
+SgzV5H66DJV4w/dbaoEoeLCyTD9ue4VwwG+/I6RPnGXwOabGWaYO6RpPz8En8iT5
+5ehrmEJrREH9X3QZ0Cubb3xUH+Kncz8ED05B6zFdtuLybfPdE33CttDGplW4dP9u
+cClcnMiw1AoF1tf41YR2BuSCoCNvtrI/EXdz04C+Zsi4JSrutVIaQZzMBH09whli
+lGw2VDdCtKXhWcVYLzTIeRcYzNh9JCkvqXX0rOYgmpuFbyB1X+LgNPfDJDunl6jP
+B2mSfVTbEIKE4ZJJW6Puc3aNawFxsSMi9h+aJDw/YUj9dmWgd+B5dSU01/Uw
+=pEzo
+-----END PGP MESSAGE-----
+--=-=-=--
+EOF
+
+notmuch new >/dev/null
+
+# notmuch show --format=json --decrypt id:WohKei0mae@example.net
+# test_done; exit
+
+test_begin_subtest "Signature verification"
+
+output=$(notmuch show --format=json --verify id:EePhogha5u@example.net)
+
+test_expect_equal "$output" "[[[{\"id\": \"EePhogha5u@example.net\", \"match\": true, \"filename\": \"$sig_message_path\", \"timestamp\": 0, \"date_relative\": \"1970-01-01\", \"tags\": [\"inbox\",\"unread\"], \"headers\": {\"Subject\": \"test message with PGP/MIME signature\", \"From\": \"notmuchtest@example.net\", \"To\": \"notmuchtest@example.net\", \"Cc\": \"\", \"Bcc\": \"\", \"Date\": \"\"}, \"body\": [{\"id\": 1, \"content-type\": \"multipart/signed\", \"sigstatus\": [{\"status\": \"good\",\"fingerprint\": \"CF1668C1C03EB8B656BD226C0EEFB7A2CE89102D\",\"created\": 1296547696}], \"content\": [
+{\"id\": 2, \"content-type\": \"text/plain\", \"content\": \"This is a test message with a PGP/MIME signature.\nTest test test...\n\"},
+{\"id\": 3, \"content-type\": \"application/pgp-signature\"}]}
+]}, []]]]"
+
+test_begin_subtest "Decryption"
+
+output=$(notmuch show --format=json --decrypt id:WohKei0mae@example.net)
+
+test_expect_equal "$output" "[[[{\"id\": \"WohKei0mae@example.net\", \"match\": true, \"filename\": \"$enc_message_path\", \"timestamp\": 0, \"date_relative\": \"1970-01-01\", \"tags\": [\"inbox\",\"unread\"], \"headers\": {\"Subject\": \"encrypted/signed PGP/MIME test message\", \"From\": \"notmuchtest@example.net\", \"To\": \"notmuchtest@example.net\", \"Cc\": \"\", \"Bcc\": \"\", \"Date\": \"\"}, \"body\": [{\"id\": 1, \"content-type\": \"multipart/encrypted\", \"encstatus\": [{\"status\": \"good\"}], \"sigstatus\": [{\"status\": \"good\",\"fingerprint\": \"CF1668C1C03EB8B656BD226C0EEFB7A2CE89102D\",\"created\": 1296672558}], \"content\": [
+{\"id\": 2, \"content-type\": \"text/plain\", \"content\": \"This is a test PGP/MIME encrypted message.\nTest test test...\n\"}]}]}, []]]]"
+
+test_done

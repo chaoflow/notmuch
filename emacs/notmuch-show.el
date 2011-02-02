@@ -440,6 +440,112 @@ current buffer, if possible."
       (indent-rigidly start (point) 1)))
   t)
 
+(defcustom notmuch-show-process-pgpmime nil
+  "Should PGP/MIME messages be processed?"
+  :group 'notmuch
+  :type 'boolean)
+
+(define-button-type 'notmuch-show-sigstatus-button-type
+  'action '(lambda (button) (message (button-get button 'help-echo)))
+  'follow-link t
+  'help-echo "Set notmuch-show-process-pgpmime to verify signature."
+  'face '(:foreground "blue")
+  'mouse-face '(:foreground "blue"))
+
+(defun notmuch-show-insert-sigstatus-header (sigstatus from)
+  (let* ((sigstatus (car sigstatus))
+	 (status (plist-get sigstatus :status))
+	 (help-msg nil)
+	 (label "multipart/signed: signature not processed")
+	 (face '(:background "red" :foreground "black")))
+    (cond
+     ((string= status "good")
+      ; if userid present, userid has full or greater validity
+      (if (plist-member sigstatus :userid)
+	  (let ((userid (plist-get sigstatus :userid)))
+	    (setq label (concat "Good signature by: " userid))
+	    (setq face '(:background "green" :foreground "black")))
+	(let ((fingerprint (concat "0x" (plist-get sigstatus :fingerprint))))
+	  (setq label (concat "Good signature by key: " fingerprint))
+	  (setq face '(:background "orange" :foreground "black")))))
+     ((string= status "error")
+      (let ((keyid (concat "0x" (plist-get sigstatus :keyid))))
+	(setq label (concat "Unknown key ID " keyid " or unsupported algorithm"))
+	(setq face '(:background "red" :foreground "black"))))
+     ((string= status "bad")
+      (let ((keyid (concat "0x" (plist-get sigstatus :keyid))))
+	(setq label (concat "Bad signature (claimed key ID " keyid ")"))
+	(setq face '(:background "red" :foreground "black"))))
+     (t
+      (setq label "Unknown signature status")
+      (if status (setq label (concat label " \"" status "\"")))))
+    (insert-button
+     (concat "[ " label " ]")
+     :type 'notmuch-show-sigstatus-button-type
+     'help-echo help-msg
+     'face face
+     'mouse-face face
+     :notmuch-sigstatus sigstatus
+     :notmuch-from from)
+    (insert "\n")))
+
+(defun notmuch-show-insert-part-multipart/signed (msg part content-type nth depth declared-type)
+  (if (plist-member part :sigstatus)
+      (let* ((headers (plist-get msg :headers))
+	     (from (plist-get headers :From))
+	     (sigstatus (plist-get part :sigstatus)))
+	(notmuch-show-insert-sigstatus-header sigstatus from))
+    (insert-button "[ multipart/signed ]\n"
+		   :type 'notmuch-show-sigstatus-button-type))
+
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+    (if (plist-member part :sigstatus)
+	;; if sigstatus render only the primary part
+	(notmuch-show-insert-bodypart msg (car inner-parts) depth )
+      ;; else show all of the parts.
+      (mapc (lambda (inner-part)
+	      (notmuch-show-insert-bodypart msg inner-part depth))
+	    inner-parts))
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-insert-part-multipart/encrypted (msg part content-type nth depth declared-type)
+  (if (plist-member part :encstatus)
+      (let* ((encstatus (plist-get part :encstatus))
+	     (status (plist-get (car encstatus) :status))
+	     (label "")
+	     (face '(:background "purple" :foreground "black")))
+	(cond
+	 ((string= status "good")
+	  (setq label "decryption successful"))
+	 ((string= status "bad")
+	  (setq label "decryption error"))
+	 (t
+	  (setq label (concat "unknown encstatus \"" status "\""))))
+	(insert-button (concat "[ multipart/encrypted: " label " ]")
+		       'follow-link t
+		       'help-echo nil
+		       'face face
+		       'mouse-face face)
+	(insert "\n")))
+
+  (if (plist-member part :sigstatus)
+      (let* ((headers (plist-get msg :headers))
+	     (from (plist-get headers :From))
+	     (sigstatus (plist-get part :sigstatus)))
+	(notmuch-show-insert-sigstatus-header sigstatus from)))
+
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+    (mapc (lambda (inner-part)
+	    (notmuch-show-insert-bodypart msg inner-part depth))
+	  inner-parts)
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
 (defun notmuch-show-insert-part-multipart/* (msg part content-type nth depth declared-type)
   (notmuch-show-insert-part-header nth declared-type content-type nil)
   (let ((inner-parts (plist-get part :content))
@@ -708,7 +814,7 @@ current buffer, if possible."
 (defvar notmuch-show-parent-buffer nil)
 
 ;;;###autoload
-(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name)
+(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name pgpmime-switch)
   "Run \"notmuch show\" with the given thread ID and display results.
 
 The optional PARENT-BUFFER is the notmuch-search buffer from
@@ -728,6 +834,9 @@ function is used. "
   (let ((buffer (get-buffer-create (generate-new-buffer-name
 				    (or buffer-name
 					(concat "*notmuch-" thread-id "*")))))
+	(pgpmime (if pgpmime-switch
+		     (not notmuch-show-process-pgpmime)
+		   notmuch-show-process-pgpmime))
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)
@@ -739,13 +848,13 @@ function is used. "
 	     (args (if query-context
 		       (append (list "\'") basic-args (list "and (" query-context ")\'"))
 		     (append (list "\'") basic-args (list "\'")))))
-	(notmuch-show-insert-forest (notmuch-query-get-threads args))
+	(notmuch-show-insert-forest (notmuch-query-get-threads args pgpmime))
 	;; If the query context reduced the results to nothing, run
 	;; the basic query.
 	(when (and (eq (buffer-size) 0)
 		   query-context)
 	  (notmuch-show-insert-forest
-	   (notmuch-query-get-threads basic-args))))
+	   (notmuch-query-get-threads basic-args pgpmime))))
 
       ;; Enable buttonisation of URLs and email addresses in the
       ;; buffer.

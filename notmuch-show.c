@@ -555,6 +555,13 @@ format_sigstatus_json (const GMimeSignatureValidity* validity)
 		printf (",\"created\": %d", (int) signer->created);
 	    if (signer->expires)
 		printf (",\"expires\": %d", (int) signer->expires);
+	    /* output user id only if validity is FULL or ULTIMATE. */
+	    /* note that gmime is using the term "trust" here, which
+	     * is WRONG.  It's actually user id "validity". */
+	    if ((signer->name) && (signer->trust)) {
+		if ((signer->trust == GMIME_SIGNER_TRUST_FULLY) || (signer->trust == GMIME_SIGNER_TRUST_ULTIMATE))
+		    printf (",\"userid\": %s", json_quote_str (ctx_quote, signer->name));
+	    }
 	} else {
 	    if (signer->keyid)
 		printf (",\"keyid\": %s", json_quote_str (ctx_quote, signer->keyid));

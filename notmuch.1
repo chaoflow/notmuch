@@ -295,6 +295,23 @@ The original, raw content of the email message is displayed.
 Consumers of this format should expect to implement MIME decoding and
 similar functions. This format must only be used with search terms
 matching a single message.
+.RE
+.RE
+
+.RS 4
+.TP 4
+.B \-\-verify
+
+Compute and report the validity of any MIME cryptographic signatures
+found in the selected content (only works with "--format=json").
+.RE
+
+.RS 4
+.TP 4
+.B \-\-decrypt
+
+Decrypt any MIME encrypted parts found in the selected content (only
+works with "--format=json", implies "--verify").
 
 .RE
 A common use of

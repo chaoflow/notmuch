@@ -211,4 +211,7 @@ notmuch_config_set_maildir_synchronize_flags (notmuch_config_t *config,
 notmuch_bool_t
 debugger_is_active (void);
 
+GType
+notmuch_gmime_session_get_type (void);
+
 #endif

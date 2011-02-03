@@ -952,53 +952,6 @@ do_show (void *ctx,
 }
 
 
-/* CRUFTY BOILERPLATE for GMimeSession (dkg thinks this will go away once GMime 2.6 comes out) */
-typedef struct _NullSession NullSession;
-typedef struct _NullSessionClass NullSessionClass;
-
-struct _NullSession {
-    GMimeSession parent_object;
-};
-struct _NullSessionClass {
-    GMimeSessionClass parent_class;
-};
-
-static void null_session_class_init (NullSessionClass *klass);
-
-static GMimeSessionClass *parent_class = NULL;
-
-static GType
-null_session_get_type (void)
-{
-    static GType type = 0;
-    
-    if (!type) {
-	static const GTypeInfo info = {
-	    sizeof (NullSessionClass),
-	    NULL, /* base_class_init */
-	    NULL, /* base_class_finalize */
-	    (GClassInitFunc) null_session_class_init,
-	    NULL, /* class_finalize */
-	    NULL, /* class_data */
-	    sizeof (NullSession),
-	    0,    /* n_preallocs */
-	    NULL, /* object_init */
-	    NULL, /* value_table */
-	};
-	type = g_type_register_static (GMIME_TYPE_SESSION, "NullSession", &info, 0);
-    }
-    return type;
-}
-
-static void
-null_session_class_init (NullSessionClass *klass)
-{
-    GMimeSessionClass *session_class = GMIME_SESSION_CLASS (klass);
-    parent_class = g_type_class_ref (GMIME_TYPE_SESSION);
-    session_class->request_passwd = NULL;
-}
-/* END CRUFTY BOILERPLATE */
-
 int
 notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 {
@@ -1044,7 +997,7 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 	    }
 	} else if ((STRNCMP_LITERAL (argv[i], "--verify") == 0 || (STRNCMP_LITERAL (argv[i], "--decrypt") == 0)) &&
 		   params.cryptoctx == NULL) {
-	    session = g_object_new(null_session_get_type(), NULL);
+	    session = g_object_new(notmuch_gmime_session_get_type(), NULL);
 	    if (NULL == (params.cryptoctx = g_mime_gpg_context_new(session, "gpg")))
 		fprintf (stderr, "Failed to construct gpg context\n");
 	    else

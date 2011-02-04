@@ -448,8 +448,7 @@ current buffer, if possible."
   'mouse-face '(:foreground "blue"))
 
 (defun notmuch-show-insert-sigstatus-header (sigstatus from)
-  (let* ((sigstatus (car sigstatus))
-	 (status (plist-get sigstatus :status))
+  (let* ((status (plist-get sigstatus :status))
 	 (help-msg nil)
 	 (label "multipart/signed: signature not processed")
 	 (face '(:background "red" :foreground "black")))
@@ -488,7 +487,7 @@ current buffer, if possible."
   (if (plist-member part :sigstatus)
       (let* ((headers (plist-get msg :headers))
 	     (from (plist-get headers :From))
-	     (sigstatus (plist-get part :sigstatus)))
+	     (sigstatus (car (plist-get part :sigstatus))))
 	(notmuch-show-insert-sigstatus-header sigstatus from))
     (insert-button "[ multipart/signed ]\n"
 		   :type 'notmuch-show-sigstatus-button-type))
@@ -497,7 +496,7 @@ current buffer, if possible."
 	(start (point)))
     (if (plist-member part :sigstatus)
 	;; if sigstatus render only the primary part
-	(notmuch-show-insert-bodypart msg (car inner-parts) depth )
+	(notmuch-show-insert-bodypart msg (car inner-parts) depth)
       ;; else show all of the parts.
       (mapc (lambda (inner-part)
 	      (notmuch-show-insert-bodypart msg inner-part depth))
@@ -508,8 +507,8 @@ current buffer, if possible."
 
 (defun notmuch-show-insert-part-multipart/encrypted (msg part content-type nth depth declared-type)
   (if (plist-member part :encstatus)
-      (let* ((encstatus (plist-get part :encstatus))
-	     (status (plist-get (car encstatus) :status))
+      (let* ((encstatus (car (plist-get part :encstatus)))
+	     (status (plist-get encstatus :status))
 	     (label "")
 	     (face '(:background "purple" :foreground "black")))
 	(cond
@@ -529,8 +528,8 @@ current buffer, if possible."
   (if (plist-member part :sigstatus)
       (let* ((headers (plist-get msg :headers))
 	     (from (plist-get headers :From))
-	     (sigstatus (plist-get part :sigstatus)))
-	(if (plist-member (car sigstatus) :status)
+	     (sigstatus (car (plist-get part :sigstatus))))
+	(if (plist-member sigstatus :status)
 	    (notmuch-show-insert-sigstatus-header sigstatus from))))
 
   (let ((inner-parts (plist-get part :content))

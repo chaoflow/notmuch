@@ -338,6 +338,10 @@ command_t commands[] = {
       "\t\t\tOnly produces In-Reply-To, References, To\n"
       "\t\t\tCc, and Bcc headers.\n"
       "\n"
+      "\t--decrypt\n"
+      "\n"
+      "\t\tDecrypt any PGP/MIME-encrypted parts being replied to.\n"
+      "\n"
       "\tSee \"notmuch help search-terms\" for details of the search\n"
       "\tterms syntax." },
     { "tag", notmuch_tag_command,

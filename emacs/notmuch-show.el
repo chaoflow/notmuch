@@ -440,15 +440,10 @@ current buffer, if possible."
       (indent-rigidly start (point) 1)))
   t)
 
-(defcustom notmuch-show-process-pgpmime nil
-  "Should PGP/MIME messages be processed?"
-  :group 'notmuch
-  :type 'boolean)
-
 (define-button-type 'notmuch-show-sigstatus-button-type
   'action '(lambda (button) (message (button-get button 'help-echo)))
   'follow-link t
-  'help-echo "Set notmuch-show-process-pgpmime to verify signature."
+  'help-echo "Set notmuch-process-pgpmime for automatic signature verification."
   'face '(:foreground "blue")
   'mouse-face '(:foreground "blue"))
 
@@ -835,8 +830,8 @@ function is used. "
 				    (or buffer-name
 					(concat "*notmuch-" thread-id "*")))))
 	(pgpmime (if pgpmime-switch
-		     (not notmuch-show-process-pgpmime)
-		   notmuch-show-process-pgpmime))
+		     (not notmuch-process-pgpmime)
+		   notmuch-process-pgpmime))
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)

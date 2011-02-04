@@ -56,6 +56,11 @@ the user hasn't set this variable with the old or new value."
       '(("inbox" . "tag:inbox")
 	("unread" . "tag:unread")))))
 
+(defcustom notmuch-process-pgpmime nil
+  "Should PGP/MIME messages be processed?"
+  :group 'notmuch
+  :type 'boolean)
+
 (defun notmuch-version ()
   "Return a string with the notmuch version number."
   (let ((long-string

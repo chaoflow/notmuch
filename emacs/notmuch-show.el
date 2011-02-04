@@ -530,7 +530,8 @@ current buffer, if possible."
       (let* ((headers (plist-get msg :headers))
 	     (from (plist-get headers :From))
 	     (sigstatus (plist-get part :sigstatus)))
-	(notmuch-show-insert-sigstatus-header sigstatus from)))
+	(if (plist-member (car sigstatus) :status)
+	    (notmuch-show-insert-sigstatus-header sigstatus from))))
 
   (let ((inner-parts (plist-get part :content))
 	(start (point)))

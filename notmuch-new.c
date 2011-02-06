@@ -696,6 +696,27 @@ upgrade_print_progress (void *closure,
     fflush (stdout);
 }
 
+/* Remove one message filename from the database. */
+static notmuch_status_t
+remove_file (notmuch_database_t *notmuch,
+	     const char *path,
+	     int *renamed_files,
+	     int *removed_files)
+{
+    notmuch_status_t status;
+    notmuch_message_t *message;
+    message = notmuch_database_find_message_by_filename (notmuch, path);
+    if (!message)
+	return NOTMUCH_STATUS_SUCCESS;
+    status = notmuch_message_remove_filename (message, path);
+    if (status == NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID)
+	(*renamed_files)++;
+    else
+	(*removed_files)++;
+    notmuch_message_destroy (message);
+    return status;
+}
+
 /* Recursively remove all filenames from the database referring to
  * 'path' (or to any of its children). */
 static void
@@ -707,7 +728,6 @@ _remove_directory (void *ctx,
 {
     notmuch_directory_t *directory;
     notmuch_filenames_t *files, *subdirs;
-    notmuch_status_t status;
     char *absolute;
 
     directory = notmuch_database_get_directory (notmuch, path);
@@ -718,11 +738,7 @@ _remove_directory (void *ctx,
     {
 	absolute = talloc_asprintf (ctx, "%s/%s", path,
 				    notmuch_filenames_get (files));
-	status = notmuch_database_remove_message (notmuch, absolute);
-	if (status == NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID)
-	    *renamed_files = *renamed_files + 1;
-	else
-	    *removed_files = *removed_files + 1;
+	remove_file (notmuch, absolute, renamed_files, removed_files);
 	talloc_free (absolute);
     }
 
@@ -754,7 +770,6 @@ notmuch_new_command (void *ctx, int argc, char *argv[])
     struct sigaction action;
     _filename_node_t *f;
     int renamed_files, removed_files;
-    notmuch_status_t status;
     int i;
     notmuch_bool_t timer_is_active = FALSE;
 
@@ -844,11 +859,7 @@ notmuch_new_command (void *ctx, int argc, char *argv[])
     renamed_files = 0;
     gettimeofday (&tv_start, NULL);
     for (f = add_files_state.removed_files->head; f && !interrupted; f = f->next) {
-	status = notmuch_database_remove_message (notmuch, f->filename);
-	if (status == NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID)
-	    renamed_files++;
-	else
-	    removed_files++;
+	remove_file (notmuch, f->filename, &renamed_files, &removed_files);
 	if (do_print_progress) {
 	    do_print_progress = 0;
 	    generic_print_progress ("Cleaned up", "messages",

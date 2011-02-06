@@ -1328,6 +1328,27 @@ notmuch_message_remove_all_tags (notmuch_message_t *message)
 }
 
 notmuch_status_t
+notmuch_message_remove_filename (notmuch_message_t *message,
+				 const char *filename)
+{
+    notmuch_status_t status;
+
+    status = _notmuch_database_ensure_writable (message->notmuch);
+    if (status)
+	return status;
+
+    status = _notmuch_message_remove_filename (message, filename);
+    /* Was this the last file-direntry in the message? */
+    if (status == NOTMUCH_STATUS_SUCCESS)
+	message->deleted = TRUE;
+
+    if (! message->frozen)
+	_notmuch_message_sync (message);
+
+    return status;
+}
+
+notmuch_status_t
 notmuch_message_freeze (notmuch_message_t *message)
 {
     notmuch_status_t status;

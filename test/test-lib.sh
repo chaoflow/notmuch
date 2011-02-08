@@ -484,8 +484,8 @@ notmuch_json_show_sanitize ()
 {
     sed -e 's|, |,\n |g' | \
 	sed \
-	-e 's|"id": ".*",|"id": "XXXXX",|' \
-	-e 's|"filename": ".*",|"filename": "YYYYY",|'
+	-e 's|"id": "[^"]*",|"id": "XXXXX",|' \
+	-e 's|"filename": "[^"]*",|"filename": "YYYYY",|'
 }
 
 # End of notmuch helper functions

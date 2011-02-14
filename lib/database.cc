@@ -1455,7 +1455,10 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
 		    /* XXX amdragon: Don't hard-code the set of
 		     * inheritable tags. */
 		    if (strcmp (tag, "muted") == 0)
-			notmuch_message_add_tag (message, tag);
+			/* XXX amdragon: Blech.  Need to avoid the
+			 * message sync.  Wouldn't be an issue with
+			 * the atomic-new patches. */
+			_notmuch_message_add_term (message, "tag", tag);
 		}
 		notmuch_tags_destroy (tags);
 	    }

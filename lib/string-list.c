@@ -43,6 +43,23 @@ _notmuch_string_list_create (const void *ctx)
 }
 
 void
+_notmuch_string_list_prepend (notmuch_string_list_t *list,
+			      const char *string)
+{
+    /* Create and initialize new node. */
+    notmuch_string_node_t *node = talloc (list, notmuch_string_node_t);
+
+    node->string = talloc_strdup (node, string);
+    node->next = list->head;
+
+    /* Prepend the node to the list. */
+    list->head = node;
+    if (node->next == NULL)
+	list->tail = &node->next;
+    list->length++;
+}
+
+void
 _notmuch_string_list_append (notmuch_string_list_t *list,
 			     const char *string)
 {

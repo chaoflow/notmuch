@@ -473,6 +473,10 @@ typedef struct _notmuch_string_list {
 notmuch_string_list_t *
 _notmuch_string_list_create (const void *ctx);
 
+void
+_notmuch_string_list_prepend (notmuch_string_list_t *list,
+			      const char *string);
+
 /* Add 'string' to 'list'.
  *
  * The list will create its own talloced copy of 'string'.

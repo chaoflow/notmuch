@@ -1308,7 +1308,8 @@ _get_metadata_thread_id_key (void *ctx, const char *message_id)
 static const char *
 _resolve_message_id_to_thread_id (notmuch_database_t *notmuch,
 				  void *ctx,
-				  const char *message_id)
+				  const char *message_id,
+				  notmuch_message_t **message_ret)
 {
     notmuch_message_t *message;
     string thread_id_string;
@@ -1320,8 +1321,7 @@ _resolve_message_id_to_thread_id (notmuch_database_t *notmuch,
 
     if (message) {
 	thread_id = talloc_steal (ctx, notmuch_message_get_thread_id (message));
-
-	notmuch_message_destroy (message);
+	*message_ret = message;
 
 	return thread_id;
     }
@@ -1332,6 +1332,7 @@ _resolve_message_id_to_thread_id (notmuch_database_t *notmuch,
      * can return the thread ID stored in the metadata. Otherwise, we
      * generate a new thread ID and store it there.
      */
+    *message_ret = NULL;
     db = static_cast <Xapian::WritableDatabase *> (notmuch->xapian_db);
     metadata_key = _get_metadata_thread_id_key (ctx, message_id);
     thread_id_string = notmuch->xapian_db->get_metadata (metadata_key);
@@ -1427,6 +1428,7 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
     for (l = parents->head; l; l = l->next) {
 	char *parent_message_id;
 	const char *parent_thread_id;
+	notmuch_message_t *parent_message;
 
 	parent_message_id = l->string;
 	if (g_hash_table_lookup_extended (parent_set, parent_message_id,
@@ -1439,9 +1441,25 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
 
 	parent_thread_id = _resolve_message_id_to_thread_id (notmuch,
 							     message,
-							     parent_message_id);
+							     parent_message_id,
+							     &parent_message);
 
 	if (*thread_id == NULL) {
+	    if (parent_message) {
+		/* Propagate inheritable tags. */
+		notmuch_tags_t *tags;
+		for (tags = notmuch_message_get_tags (parent_message);
+		     notmuch_tags_valid (tags);
+		     notmuch_tags_move_to_next (tags)) {
+		    const char *tag = notmuch_tags_get (tags);
+		    /* XXX amdragon: Don't hard-code the set of
+		     * inheritable tags. */
+		    if (strcmp (tag, "muted") == 0)
+			notmuch_message_add_tag (message, tag);
+		}
+		notmuch_tags_destroy (tags);
+	    }
+
 	    *thread_id = talloc_strdup (message, parent_thread_id);
 	    _notmuch_message_add_term (message, "thread", *thread_id);
 	} else if (strcmp (*thread_id, parent_thread_id)) {
@@ -1449,6 +1467,9 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
 	    if (ret)
 		goto DONE;
 	}
+
+	if (parent_message)
+	    notmuch_message_destroy (parent_message);
     }
 
   DONE:

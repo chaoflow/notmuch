@@ -162,4 +162,14 @@ increment_mtime "${MAIL_DIR}"
 output=$(NOTMUCH_NEW)
 test_expect_equal "$output" "No new mail. Removed 3 messages."
 
+
+test_begin_subtest "Inheritable tags"
+generate_message
+$(NOTMUCH_NEW)
+notmuch tag +muted id:$gen_msg_id
+generate_message "[in-reply-to]='<$gen_msg_id>'"
+$(NOTMUCH_NEW)
+output=$(notmuch count tag:muted)
+test_expect_equal "$output" "2"
+
 test_done

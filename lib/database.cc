@@ -499,7 +499,7 @@ _parse_message_id (void *ctx, const char *message_id, const char **next)
 static void
 parse_references (void *ctx,
 		  const char *message_id,
-		  GHashTable *hash,
+		  notmuch_string_list_t *list,
 		  const char *refs)
 {
     char *ref;
@@ -511,7 +511,7 @@ parse_references (void *ctx,
 	ref = _parse_message_id (ctx, refs, &refs);
 
 	if (ref && strcmp (ref, message_id))
-	    g_hash_table_insert (hash, ref, NULL);
+	    _notmuch_string_list_prepend (list, ref);
     }
 }
 
@@ -1396,13 +1396,13 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
 					   notmuch_message_file_t *message_file,
 					   const char **thread_id)
 {
-    GHashTable *parents = NULL;
+    notmuch_string_list_t *parents;
+    GHashTable *parent_set = NULL;
     const char *refs, *in_reply_to, *in_reply_to_message_id;
-    GList *l, *keys = NULL;
+    notmuch_string_node_t *l;
     notmuch_status_t ret = NOTMUCH_STATUS_SUCCESS;
 
-    parents = g_hash_table_new_full (g_str_hash, g_str_equal,
-				     _my_talloc_free_for_g_hash, NULL);
+    parents = _notmuch_string_list_create (message);
 
     refs = notmuch_message_file_get_header (message_file, "references");
     parse_references (message, notmuch_message_get_message_id (message),
@@ -1422,12 +1422,17 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
 			     _parse_message_id (message, in_reply_to, NULL));
     }
 
-    keys = g_hash_table_get_keys (parents);
-    for (l = keys; l; l = l->next) {
+    parent_set = g_hash_table_new_full (g_str_hash, g_str_equal,
+					_my_talloc_free_for_g_hash, NULL);
+    for (l = parents->head; l; l = l->next) {
 	char *parent_message_id;
 	const char *parent_thread_id;
 
-	parent_message_id = (char *) l->data;
+	parent_message_id = l->string;
+	if (g_hash_table_lookup_extended (parent_set, parent_message_id,
+					  NULL, NULL))
+	    continue;
+	g_hash_table_insert (parent_set, parent_message_id, NULL);
 
 	_notmuch_message_add_term (message, "reference",
 				   parent_message_id);
@@ -1447,10 +1452,8 @@ _notmuch_database_link_message_to_parents (notmuch_database_t *notmuch,
     }
 
   DONE:
-    if (keys)
-	g_list_free (keys);
-    if (parents)
-	g_hash_table_unref (parents);
+    if (parent_set)
+	g_hash_table_unref (parent_set);
 
     return ret;
 }

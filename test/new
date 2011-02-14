@@ -164,11 +164,9 @@ test_expect_equal "$output" "No new mail. Removed 3 messages."
 
 
 test_begin_subtest "Inheritable tags"
-generate_message
-$(NOTMUCH_NEW)
+add_message
 notmuch tag +muted id:$gen_msg_id
-generate_message "[in-reply-to]='<$gen_msg_id>'"
-$(NOTMUCH_NEW)
+add_message "[in-reply-to]='<$gen_msg_id>'"
 output=$(notmuch count tag:muted)
 test_expect_equal "$output" "2"
 

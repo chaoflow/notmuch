@@ -170,4 +170,12 @@ add_message "[in-reply-to]='<$gen_msg_id>'"
 output=$(notmuch count tag:muted)
 test_expect_equal "$output" "2"
 
+
+test_begin_subtest "Inheritable tags with thread merging"
+parent=$gen_msg_id
+add_message [in-reply-to]=missing@notmuch-test-suite
+add_message [id]=missing@notmuch-test-suite "[in-reply-to]='<$parent>'"
+output=$(notmuch count tag:muted)
+test_expect_equal "$output" "4"
+
 test_done

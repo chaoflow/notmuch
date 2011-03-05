@@ -56,11 +56,20 @@ the user hasn't set this variable with the old or new value."
       '(("inbox" . "tag:inbox")
 	("unread" . "tag:unread")))))
 
-(defcustom notmuch-process-pgpmime nil
-  "Should PGP/MIME messages be processed?
+(defcustom notmuch-process-crypto-mime nil
+  "Should cryptographic MIME parts be processed?
 
-This includes verifying PGP signatures and decrypting encrypted
-parts."
+If this variable is non-nil signatures in multipart/signed
+messages will be verified and multipart/encrypted parts will be
+decrypted.  The result of the crypto operation will be displayed
+in a specially colored header button at the top of the processed
+part.  Signed parts will have variously colored headers depending
+on the success or failure of the verification process and on the
+validity of user ID of the signer.
+
+The effect of setting this variable can be seen temporarily by
+viewing a signed or encrypted message with M-RET in notmuch
+search."
   :group 'notmuch
   :type 'boolean)
 

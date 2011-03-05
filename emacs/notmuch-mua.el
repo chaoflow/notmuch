@@ -74,8 +74,8 @@ list."
 	body
 	(args '("reply"))
 	(decrypt (if decrypt-switch
-		     (not notmuch-process-pgpmime)
-		   notmuch-process-pgpmime)))
+		     (not notmuch-process-crypto-mime)
+		   notmuch-process-crypto-mime)))
     (if decrypt
 	(setq args (append args '("--decrypt"))))
     (setq args (append args (list query-string)))

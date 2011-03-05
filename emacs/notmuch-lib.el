@@ -57,7 +57,10 @@ the user hasn't set this variable with the old or new value."
 	("unread" . "tag:unread")))))
 
 (defcustom notmuch-process-pgpmime nil
-  "Should PGP/MIME messages be processed?"
+  "Should PGP/MIME messages be processed?
+
+This includes verifying PGP signatures and decrypting encrypted
+parts."
   :group 'notmuch
   :type 'boolean)
 

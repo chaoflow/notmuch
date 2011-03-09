@@ -754,7 +754,7 @@ current buffer, if possible."
 (defvar notmuch-show-parent-buffer nil)
 
 ;;;###autoload
-(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name pgpmime-switch)
+(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name crypto-switch)
   "Run \"notmuch show\" with the given thread ID and display results.
 
 The optional PARENT-BUFFER is the notmuch-search buffer from
@@ -774,9 +774,9 @@ function is used. "
   (let ((buffer (get-buffer-create (generate-new-buffer-name
 				    (or buffer-name
 					(concat "*notmuch-" thread-id "*")))))
-	(pgpmime (if pgpmime-switch
-		     (not notmuch-crypto-process-mime)
-		   notmuch-crypto-process-mime))
+	(process-crypto (if crypto-switch
+			    (not notmuch-crypto-process-mime)
+			  notmuch-crypto-process-mime))
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)
@@ -788,13 +788,13 @@ function is used. "
 	     (args (if query-context
 		       (append (list "\'") basic-args (list "and (" query-context ")\'"))
 		     (append (list "\'") basic-args (list "\'")))))
-	(notmuch-show-insert-forest (notmuch-query-get-threads args pgpmime))
+	(notmuch-show-insert-forest (notmuch-query-get-threads args process-crypto))
 	;; If the query context reduced the results to nothing, run
 	;; the basic query.
 	(when (and (eq (buffer-size) 0)
 		   query-context)
 	  (notmuch-show-insert-forest
-	   (notmuch-query-get-threads basic-args pgpmime))))
+	   (notmuch-query-get-threads basic-args process-crypto))))
 
       ;; Enable buttonisation of URLs and email addresses in the
       ;; buffer.

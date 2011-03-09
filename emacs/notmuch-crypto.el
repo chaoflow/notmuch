@@ -79,6 +79,26 @@ search."
      :notmuch-from from)
     (insert "\n")))
 
+(defun notmuch-crypto-insert-encstatus-button (encstatus)
+  (let* ((status (plist-get encstatus :status))
+	 (help-msg nil)
+	 (label "multipart/encrypted: decryption not attempted")
+	 (face '(:background "purple" :foreground "black")))
+    (cond
+     ((string= status "good")
+      (setq label "decryption successful"))
+     ((string= status "bad")
+      (setq label "decryption error"))
+     (t
+      (setq label (concat "unknown encstatus \"" status "\""))))
+    (insert-button
+     (concat "[ multipart/encrypted: " label " ]")
+     :type 'notmuch-crypto-status-button-type
+     'help-echo help-msg
+     'face face
+     'mouse-face face)
+    (insert "\n")))
+
 ;;
 
 (provide 'notmuch-crypto)

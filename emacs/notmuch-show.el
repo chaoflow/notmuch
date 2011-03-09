@@ -465,23 +465,10 @@ current buffer, if possible."
 
 (defun notmuch-show-insert-part-multipart/encrypted (msg part content-type nth depth declared-type)
   (if (plist-member part :encstatus)
-      (let* ((encstatus (car (plist-get part :encstatus)))
-	     (status (plist-get encstatus :status))
-	     (label "")
-	     (face '(:background "purple" :foreground "black")))
-	(cond
-	 ((string= status "good")
-	  (setq label "decryption successful"))
-	 ((string= status "bad")
-	  (setq label "decryption error"))
-	 (t
-	  (setq label (concat "unknown encstatus \"" status "\""))))
-	(insert-button (concat "[ multipart/encrypted: " label " ]")
-		       'follow-link t
-		       'help-echo nil
-		       'face face
-		       'mouse-face face)
-	(insert "\n")))
+      (let* ((encstatus (car (plist-get part :encstatus))))
+	(notmuch-crypto-insert-encstatus-button encstatus))
+    (insert-button "[ multipart/encrypted ]\n"
+		   :type 'notmuch-crypto-status-button-type))
 
   (if (plist-member part :sigstatus)
       (let* ((headers (plist-get msg :headers))

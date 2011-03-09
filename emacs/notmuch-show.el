@@ -443,7 +443,7 @@ current buffer, if possible."
 (define-button-type 'notmuch-show-sigstatus-button-type
   'action '(lambda (button) (message (button-get button 'help-echo)))
   'follow-link t
-  'help-echo "Set notmuch-process-crypto-mime for automatic signature verification."
+  'help-echo "Set notmuch-crypto-process-mime for automatic signature verification."
   'face '(:foreground "blue")
   'mouse-face '(:foreground "blue"))
 
@@ -830,8 +830,8 @@ function is used. "
 				    (or buffer-name
 					(concat "*notmuch-" thread-id "*")))))
 	(pgpmime (if pgpmime-switch
-		     (not notmuch-process-crypto-mime)
-		   notmuch-process-crypto-mime))
+		     (not notmuch-crypto-process-mime)
+		   notmuch-crypto-process-mime))
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)

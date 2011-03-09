@@ -56,7 +56,7 @@ the user hasn't set this variable with the old or new value."
       '(("inbox" . "tag:inbox")
 	("unread" . "tag:unread")))))
 
-(defcustom notmuch-process-crypto-mime nil
+(defcustom notmuch-crypto-process-mime nil
   "Should cryptographic MIME parts be processed?
 
 If this variable is non-nil signatures in multipart/signed

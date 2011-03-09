@@ -32,6 +32,7 @@
 (require 'notmuch-query)
 (require 'notmuch-wash)
 (require 'notmuch-mua)
+(require 'notmuch-crypto)
 
 (declare-function notmuch-call-notmuch-process "notmuch" (&rest args))
 (declare-function notmuch-fontify-headers "notmuch" nil)
@@ -440,57 +441,14 @@ current buffer, if possible."
       (indent-rigidly start (point) 1)))
   t)
 
-(define-button-type 'notmuch-show-sigstatus-button-type
-  'action '(lambda (button) (message (button-get button 'help-echo)))
-  'follow-link t
-  'help-echo "Set notmuch-crypto-process-mime for automatic signature verification."
-  'face '(:foreground "blue")
-  'mouse-face '(:foreground "blue"))
-
-(defun notmuch-show-insert-sigstatus-header (sigstatus from)
-  (let* ((status (plist-get sigstatus :status))
-	 (help-msg nil)
-	 (label "multipart/signed: signature not processed")
-	 (face '(:background "red" :foreground "black")))
-    (cond
-     ((string= status "good")
-      ; if userid present, userid has full or greater validity
-      (if (plist-member sigstatus :userid)
-	  (let ((userid (plist-get sigstatus :userid)))
-	    (setq label (concat "Good signature by: " userid))
-	    (setq face '(:background "green" :foreground "black")))
-	(let ((fingerprint (concat "0x" (plist-get sigstatus :fingerprint))))
-	  (setq label (concat "Good signature by key: " fingerprint))
-	  (setq face '(:background "orange" :foreground "black")))))
-     ((string= status "error")
-      (let ((keyid (concat "0x" (plist-get sigstatus :keyid))))
-	(setq label (concat "Unknown key ID " keyid " or unsupported algorithm"))
-	(setq face '(:background "red" :foreground "black"))))
-     ((string= status "bad")
-      (let ((keyid (concat "0x" (plist-get sigstatus :keyid))))
-	(setq label (concat "Bad signature (claimed key ID " keyid ")"))
-	(setq face '(:background "red" :foreground "black"))))
-     (t
-      (setq label "Unknown signature status")
-      (if status (setq label (concat label " \"" status "\"")))))
-    (insert-button
-     (concat "[ " label " ]")
-     :type 'notmuch-show-sigstatus-button-type
-     'help-echo help-msg
-     'face face
-     'mouse-face face
-     :notmuch-sigstatus sigstatus
-     :notmuch-from from)
-    (insert "\n")))
-
 (defun notmuch-show-insert-part-multipart/signed (msg part content-type nth depth declared-type)
   (if (plist-member part :sigstatus)
       (let* ((headers (plist-get msg :headers))
 	     (from (plist-get headers :From))
 	     (sigstatus (car (plist-get part :sigstatus))))
-	(notmuch-show-insert-sigstatus-header sigstatus from))
+	(notmuch-crypto-insert-sigstatus-button sigstatus from))
     (insert-button "[ multipart/signed ]\n"
-		   :type 'notmuch-show-sigstatus-button-type))
+		   :type 'notmuch-crypto-status-button-type))
 
   (let ((inner-parts (plist-get part :content))
 	(start (point)))
@@ -530,7 +488,7 @@ current buffer, if possible."
 	     (from (plist-get headers :From))
 	     (sigstatus (car (plist-get part :sigstatus))))
 	(if (plist-member sigstatus :status)
-	    (notmuch-show-insert-sigstatus-header sigstatus from))))
+	    (notmuch-crypto-insert-sigstatus-button sigstatus from))))
 
   (let ((inner-parts (plist-get part :content))
 	(start (point)))

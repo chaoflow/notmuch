@@ -57,7 +57,7 @@ line."
 	 (chosen (if (eq num-options 1)
 		     (car options)
 		   (completing-read (format "Address (%s matches): " num-options)
-				    (cdr options) nil nil (car options)
+				    options nil nil nil
 				    'notmuch-address-history))))
     (when chosen
       (push chosen notmuch-address-history)

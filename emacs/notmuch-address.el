@@ -68,7 +68,7 @@ line."
 	 (chosen (if (eq num-options 1)
 		     (car options)
 		   (ido-completing-read (format "Address (%s matches): " num-options)
-					options nil nil nil
+					options nil nil orig
 					'notmuch-address-history))))
     (when chosen
       (push chosen notmuch-address-history)

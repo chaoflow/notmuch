@@ -860,6 +860,8 @@ function is used. "
 	(define-key map "+" 'notmuch-show-add-tag)
 	(define-key map "x" 'notmuch-show-archive-thread-then-exit)
 	(define-key map "a" 'notmuch-show-archive-thread)
+        (define-key map "S" 'notmuch-show-mark-spam)
+        (define-key map "z" 'notmuch-show-mute)
 	(define-key map "N" 'notmuch-show-next-message)
 	(define-key map "P" 'notmuch-show-previous-message)
 	(define-key map "n" 'notmuch-show-next-open-message)
@@ -1294,6 +1296,21 @@ the result."
 			   (mapcar (lambda (s) (concat "-" s)) toremove))
 		     (cons (notmuch-show-get-message-id) nil)))
       (notmuch-show-set-tags new-tags))))
+
+(defun notmuch-show-mute ()
+  "Tag as \"muted\" and archive.
+
+XXX: With the inheritable-tags-hack branch a whole thread
+inherits the \"muted\" flag of a message within it."
+  (interactive)
+  (notmuch-show-add-tag "muted")
+  (notmuch-show-archive-thread))
+
+(defun notmuch-show-mark-spam ()
+  "Tag as \"spam\" and archive."
+  (interactive)
+  (notmuch-show-add-tag "spam")
+  (notmuch-show-archive-thread))
 
 (defun notmuch-show-toggle-headers ()
   "Toggle the visibility of the current message headers."

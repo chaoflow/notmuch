@@ -217,6 +217,8 @@ For a mouse binding, return nil."
     (define-key map "a" 'notmuch-search-archive-thread)
     (define-key map "-" 'notmuch-search-remove-tag)
     (define-key map "+" 'notmuch-search-add-tag)
+    (define-key map "z" 'notmuch-search-mute)
+    (define-key map "S" 'notmuch-search-mark-spam)
     (define-key map (kbd "RET") 'notmuch-search-show-thread)
     (define-key map (kbd "M-RET") 'notmuch-search-show-thread-crypto-switch)
     map)
@@ -568,6 +570,21 @@ This function advances the next thread when finished."
   (interactive)
   (notmuch-search-remove-tag-thread "inbox")
   (forward-line))
+
+(defun notmuch-search-mute ()
+  "Tag as \"muted\" and archive.
+
+XXX: With the inheritable-tags-hack branch a whole thread
+inherits the \"muted\" flag of a message within it."
+  (interactive)
+  (notmuch-search-add-tag "muted")
+  (notmuch-search-archive-thread))
+
+(defun notmuch-search-mark-spam ()
+  "Tag as \"spam\" and archive."
+  (interactive)
+  (notmuch-search-add-tag "spam")
+  (notmuch-search-archive-thread))
 
 (defvar notmuch-search-process-filter-data nil
   "Data that has not yet been processed.")

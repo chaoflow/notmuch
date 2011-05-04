@@ -974,6 +974,50 @@ notmuch_database_upgrade (notmuch_database_t *notmuch,
     return NOTMUCH_STATUS_SUCCESS;
 }
 
+notmuch_status_t
+notmuch_database_begin_atomic (notmuch_database_t *notmuch)
+{
+    if (notmuch->mode == NOTMUCH_DATABASE_MODE_READ_ONLY)
+	return NOTMUCH_STATUS_SUCCESS;
+
+    try {
+	(static_cast <Xapian::WritableDatabase *> (notmuch->xapian_db))->begin_transaction (false);
+    } catch (const Xapian::Error &error) {
+	fprintf (stderr, "A Xapian exception occurred beginning transaction: %s.\n",
+		 error.get_msg().c_str());
+	notmuch->exception_reported = TRUE;
+	return NOTMUCH_STATUS_XAPIAN_EXCEPTION;
+    }
+    return NOTMUCH_STATUS_SUCCESS;
+}
+
+notmuch_status_t
+notmuch_database_end_atomic (notmuch_database_t *notmuch)
+{
+    Xapian::WritableDatabase *db;
+
+    if (notmuch->mode == NOTMUCH_DATABASE_MODE_READ_ONLY)
+	return NOTMUCH_STATUS_SUCCESS;
+
+    db = static_cast <Xapian::WritableDatabase *> (notmuch->xapian_db);
+    try {
+	db->commit_transaction ();
+
+	/* This is a hack for testing.  Xapian never flushes on a
+	 * non-flushed commit, even if the flush threshold is 1.
+	 * However, we rely on flushing to test atomicity. */
+	const char *thresh = getenv ("XAPIAN_FLUSH_THRESHOLD");
+	if (thresh && atoi (thresh) == 1)
+	    db->commit ();
+    } catch (const Xapian::Error &error) {
+	fprintf (stderr, "A Xapian exception occurred committing transaction: %s.\n",
+		 error.get_msg().c_str());
+	notmuch->exception_reported = TRUE;
+	return NOTMUCH_STATUS_XAPIAN_EXCEPTION;
+    }
+    return NOTMUCH_STATUS_SUCCESS;
+}
+
 /* We allow the user to use arbitrarily long paths for directories. But
  * we have a term-length limit. So if we exceed that, we'll use the
  * SHA-1 of the path for the database term.
@@ -1689,72 +1733,56 @@ notmuch_status_t
 notmuch_database_remove_message (notmuch_database_t *notmuch,
 				 const char *filename)
 {
-    Xapian::WritableDatabase *db;
+    notmuch_message_t *message;
+    notmuch_status_t status = NOTMUCH_STATUS_SUCCESS;
+    message = notmuch_database_find_message_by_filename (notmuch, filename);
+    if (message) {
+	status = notmuch_message_remove_filename (message, filename);
+	notmuch_message_destroy (message);
+    }
+    return status;
+}
+
+notmuch_message_t *
+notmuch_database_find_message_by_filename (notmuch_database_t *notmuch,
+					   const char *filename)
+{
     void *local;
     const char *prefix = _find_prefix ("file-direntry");
     char *direntry, *term;
     Xapian::PostingIterator i, end;
-    Xapian::Document document;
+    notmuch_message_t *message = NULL;
     notmuch_status_t status;
 
-    status = _notmuch_database_ensure_writable (notmuch);
-    if (status)
-	return status;
-
     local = talloc_new (notmuch);
-
-    db = static_cast <Xapian::WritableDatabase *> (notmuch->xapian_db);
 
     try {
 
 	status = _notmuch_database_filename_to_direntry (local, notmuch,
 							 filename, &direntry);
 	if (status)
-	    return status;
+	    return NULL;
 
 	term = talloc_asprintf (local, "%s%s", prefix, direntry);
 
 	find_doc_ids_for_term (notmuch, term, &i, &end);
 
-	for ( ; i != end; i++) {
-	    Xapian::TermIterator j;
-	    notmuch_message_t *message;
+	if (i != end) {
 	    notmuch_private_status_t private_status;
 
-	    message = _notmuch_message_create (local, notmuch,
+	    message = _notmuch_message_create (notmuch, notmuch,
 					       *i, &private_status);
-	    if (message == NULL)
-		return COERCE_STATUS (private_status,
-				      "Inconsistent document ID in datbase.");
-
-	    _notmuch_message_remove_filename (message, filename);
-	    _notmuch_message_sync (message);
-
-	    /* Take care to find document after sync'ing filename removal. */
-	    document = find_document_for_doc_id (notmuch, *i);
-	    j = document.termlist_begin ();
-	    j.skip_to (prefix);
-
-	    /* Was this the last file-direntry in the message? */
-	    if (j == document.termlist_end () ||
-		strncmp ((*j).c_str (), prefix, strlen (prefix)))
-	    {
-		db->delete_document (document.get_docid ());
-		status = NOTMUCH_STATUS_SUCCESS;
-	    } else {
-		status = NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID;
-	    }
 	}
     } catch (const Xapian::Error &error) {
-	fprintf (stderr, "Error: A Xapian exception occurred removing message: %s\n",
+	fprintf (stderr, "Error: A Xapian exception occurred finding message by filename: %s\n",
 		 error.get_msg().c_str());
 	notmuch->exception_reported = TRUE;
-	status = NOTMUCH_STATUS_XAPIAN_EXCEPTION;
+	message = NULL;
     }
 
     talloc_free (local);
 
-    return status;
+    return message;
 }
 
 notmuch_string_list_t *

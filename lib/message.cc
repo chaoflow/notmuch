@@ -29,6 +29,7 @@ struct _notmuch_message {
     notmuch_database_t *notmuch;
     Xapian::docid doc_id;
     int frozen;
+    notmuch_bool_t deleted;
     char *message_id;
     char *thread_id;
     char *in_reply_to;
@@ -98,6 +99,7 @@ _notmuch_message_create_for_document (const void *talloc_owner,
     message->doc_id = doc_id;
 
     message->frozen = 0;
+    message->deleted = FALSE;
     message->flags = 0;
 
     /* Each of these will be lazily created as needed. */
@@ -503,6 +505,9 @@ _notmuch_message_add_filename (notmuch_message_t *message,
  * This change will not be reflected in the database until the next
  * call to _notmuch_message_sync.
  *
+ * If this message still has other filenames, returns
+ * NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID.
+ *
  * Note: This function does not remove a document from the database,
  * even if the specified filename is the only filename for this
  * message. For that functionality, see
@@ -564,6 +569,10 @@ _notmuch_message_remove_filename (notmuch_message_t *message,
 	/* Terminate loop at first term without desired prefix. */
 	if (strncmp ((*i).c_str (), direntry_prefix, direntry_prefix_len))
 	    break;
+
+	/* Indicate that there are filenames remaining. */
+	if (status == NOTMUCH_STATUS_SUCCESS)
+	    status = NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID;
 
 	direntry = (*i).c_str ();
 	direntry += direntry_prefix_len;
@@ -788,7 +797,10 @@ _notmuch_message_sync (notmuch_message_t *message)
 	return;
 
     db = static_cast <Xapian::WritableDatabase *> (message->notmuch->xapian_db);
-    db->replace_document (message->doc_id, message->doc);
+    if (message->deleted)
+	db->delete_document (message->doc_id);
+    else
+	db->replace_document (message->doc_id, message->doc);
 }
 
 /* Ensure that 'message' is not holding any file object open. Future
@@ -1257,7 +1269,8 @@ notmuch_message_tags_to_maildir_flags (notmuch_message_t *message)
 	    new_status = _notmuch_message_remove_filename (message,
 							   filename);
 	    /* Hold on to only the first error. */
-	    if (! status && new_status) {
+	    if (! status && new_status
+		&& new_status != NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID) {
 		status = new_status;
 		continue;
 	    }
@@ -1312,6 +1325,27 @@ notmuch_message_remove_all_tags (notmuch_message_t *message)
 
     talloc_free (tags);
     return NOTMUCH_STATUS_SUCCESS;
+}
+
+notmuch_status_t
+notmuch_message_remove_filename (notmuch_message_t *message,
+				 const char *filename)
+{
+    notmuch_status_t status;
+
+    status = _notmuch_database_ensure_writable (message->notmuch);
+    if (status)
+	return status;
+
+    status = _notmuch_message_remove_filename (message, filename);
+    /* Was this the last file-direntry in the message? */
+    if (status == NOTMUCH_STATUS_SUCCESS)
+	message->deleted = TRUE;
+
+    if (! message->frozen)
+	_notmuch_message_sync (message);
+
+    return status;
 }
 
 notmuch_status_t

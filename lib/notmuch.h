@@ -214,6 +214,36 @@ notmuch_database_upgrade (notmuch_database_t *database,
 						   double progress),
 			  void *closure);
 
+/* Begin an atomic database operation.
+ *
+ * Any modifications performed between a successful begin and a
+ * notmuch_database_end_atomic will be applied to the database
+ * atomically.  Note that, unlike a typical database transaction, this
+ * only ensures atomicity, not durability; neither begin nor end
+ * necessarily flush modifications to disk.
+ *
+ * Return value:
+ *
+ * NOTMUCH_STATUS_SUCCESS: Successfully entered atomic section.
+ *
+ * NOTMUCH_STATUS_XAPIAN_EXCEPTION: A Xapian exception occurred;
+ *	atomic section not entered.
+ */
+notmuch_status_t
+notmuch_database_begin_atomic (notmuch_database_t *notmuch);
+
+/* Indicate the end of an atomic database operation.
+ *
+ * Return value:
+ *
+ * NOTMUCH_STATUS_SUCCESS: Successfully completed atomic section.
+ *
+ * NOTMUCH_STATUS_XAPIAN_EXCEPTION: A Xapian exception occurred;
+ *	atomic section not ended.
+ */
+notmuch_status_t
+notmuch_database_end_atomic (notmuch_database_t *notmuch);
+
 /* Retrieve a directory object from the database for 'path'.
  *
  * Here, 'path' should be a path relative to the path of 'database'
@@ -315,6 +345,22 @@ notmuch_database_remove_message (notmuch_database_t *database,
 notmuch_message_t *
 notmuch_database_find_message (notmuch_database_t *database,
 			       const char *message_id);
+
+/* Find a message with the given filename.
+ *
+ * If the database contains a message with the given filename, then a
+ * new notmuch_message_t object is returned.  The caller should call 
+ * notmuch_message_destroy when done with the message.
+ *
+ * This function returns NULL in the following situations:
+ *
+ *	* No message is found with the given filename
+ *	* An out-of-memory situation occurs
+ *	* A Xapian exception occurs
+ */
+notmuch_message_t *
+notmuch_database_find_message_by_filename (notmuch_database_t *notmuch,
+					   const char *filename);
 
 /* Return a list of all tags found in the database.
  *
@@ -979,11 +1025,34 @@ notmuch_message_maildir_flags_to_tags (notmuch_message_t *message);
 notmuch_status_t
 notmuch_message_tags_to_maildir_flags (notmuch_message_t *message);
 
+/* Remove a filename from a message.  If this is the last copy of this
+ * message, also delete it from the database.
+ *
+ * Much like notmuch_message_remove_tag, if message is frozen, it will
+ * not be removed from or updated in the database until thawed.
+ *
+ * Return value:
+ *
+ * NOTMUCH_STATUS_SUCCESS: The last filename was removed and the
+ *	message was removed from the database.
+ *
+ * NOTMUCH_STATUS_DUPLICATE_MESSAGE_ID: This filename was removed but
+ *	the message persists in the database with at least one other
+ *	filename.
+ *
+ * NOTMUCH_STATUS_READ_ONLY_DATABASE: Database was opened in read-only
+ *	mode so no message can be removed.
+ */
+notmuch_status_t
+notmuch_message_remove_filename (notmuch_message_t *message,
+				 const char *filename);
+
 /* Freeze the current state of 'message' within the database.
  *
  * This means that changes to the message state, (via
- * notmuch_message_add_tag, notmuch_message_remove_tag, and
- * notmuch_message_remove_all_tags), will not be committed to the
+ * notmuch_message_add_tag, notmuch_message_remove_tag,
+ * notmuch_message_remove_all_tags, and
+ * notmuch_message_remove_filename), will not be committed to the
  * database until the message is thawed with notmuch_message_thaw.
  *
  * Multiple calls to freeze/thaw are valid and these calls will

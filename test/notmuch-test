@@ -38,6 +38,7 @@ TESTS="
   emacs
   emacs-large-search-buffer
   maildir-sync
+  atomicity
 "
 
 # Clean up any results from a previous run

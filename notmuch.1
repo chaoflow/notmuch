@@ -295,8 +295,26 @@ The original, raw content of the email message is displayed.
 Consumers of this format should expect to implement MIME decoding and
 similar functions. This format must only be used with search terms
 matching a single message.
+.RE
+.RE
+
+.RS 4
+.TP 4
+.B \-\-verify
+
+Compute and report the validity of any MIME cryptographic signatures
+found in the selected content (only works with "--format=json").
+.RE
+
+.RS 4
+.TP 4
+.B \-\-decrypt
+
+Decrypt any MIME encrypted parts found in the selected content (only
+works with "--format=json", implies "--verify").
 
 .RE
+.RS 4
 A common use of
 .B notmuch show
 is to display a single thread of email messages. For this, use a
@@ -363,7 +381,16 @@ Includes subject and quoted message body.
 .BR headers\-only
 Only produces In\-Reply\-To, References, To, Cc, and Bcc headers.
 .RE
+.RE
 
+.RS 4
+.TP 4
+.B \-\-decrypt
+
+Decrypt any MIME-encrypted parts being replied to.
+
+.RE
+.RS 4
 See the
 .B "SEARCH SYNTAX"
 section below for details of the supported syntax for <search-terms>.

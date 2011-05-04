@@ -72,12 +72,68 @@ show_reply_headers (GMimeMessage *message)
 }
 
 static void
-reply_part (GMimeObject *part, int *part_count)
+reply_part (GMimeObject *part, int *part_count, gboolean first, notmuch_show_params_t *params)
 {
     GMimeContentDisposition *disposition;
     GMimeContentType *content_type;
 
+    /* Avoid compiler complaints about unused arguments. */
     (void) part_count;
+    (void) first;
+
+    if (GMIME_IS_MULTIPART (part)) {
+	GMimeMultipart *multipart = GMIME_MULTIPART (part);
+	int i;
+
+	if (params->cryptoctx && GMIME_IS_MULTIPART_ENCRYPTED (part)) {
+	    GMimeMultipartEncrypted *encrypteddata = GMIME_MULTIPART_ENCRYPTED (part);
+	    GError* err = NULL;
+	    part = g_mime_multipart_encrypted_decrypt (encrypteddata, params->cryptoctx, &err);
+	    if (!part) {
+		fprintf (stderr, "Failed to decrypt part: %s\n", (err ? err->message : "no error explanation given"));
+	    }
+	    if (err)
+		g_error_free (err);
+	    reply_part (part, part_count, first, params);
+	    return;
+	}
+
+	for (i = 0; i < g_mime_multipart_get_count (multipart); i++) {
+		*part_count += 1;
+
+		reply_part (g_mime_multipart_get_part (multipart, i),
+			    part_count, i == 0, params);
+	}
+
+	return;
+    }
+
+    if (GMIME_IS_MESSAGE_PART (part)) {
+	GMimeMessage *mime_message;
+	const char *value;
+	InternetAddressList *addresses;
+
+	*part_count += 1;
+	mime_message = g_mime_message_part_get_message (GMIME_MESSAGE_PART (part));
+
+	/* Insert the headers of the enclosed message. */
+	value = g_mime_message_get_sender(mime_message);
+	printf ("From: %s\n", value);
+	value = g_mime_message_get_subject(mime_message);
+	printf ("Subject: %s\n", value);
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_TO);
+	printf ("To: %s\n", internet_address_list_to_string (addresses, FALSE));
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_CC);
+	printf ("Cc: %s\n", internet_address_list_to_string (addresses, FALSE));
+	value = g_mime_message_get_date_as_string(mime_message);
+	printf ("Date: %s\n", value);
+
+	reply_part (g_mime_message_get_mime_part (mime_message),
+		    part_count, TRUE, params);
+
+	return;
+    }
+
     disposition = g_mime_object_get_content_disposition (part);
     if (disposition &&
 	strcmp (disposition->disposition, GMIME_DISPOSITION_ATTACHMENT) == 0)
@@ -440,7 +496,10 @@ guess_from_received_header (notmuch_config_t *config, notmuch_message_t *message
 }
 
 static int
-notmuch_reply_format_default(void *ctx, notmuch_config_t *config, notmuch_query_t *query)
+notmuch_reply_format_default(void *ctx,
+			     notmuch_config_t *config,
+			     notmuch_query_t *query,
+			     notmuch_show_params_t *params)
 {
     GMimeMessage *reply;
     notmuch_messages_t *messages;
@@ -505,7 +564,7 @@ notmuch_reply_format_default(void *ctx, notmuch_config_t *config, notmuch_query_
 		notmuch_message_get_header (message, "date"),
 		notmuch_message_get_header (message, "from"));
 
-	show_message_body (notmuch_message_get_filename (message), reply_part);
+	show_message_body (notmuch_message_get_filename (message), reply_part, params);
 
 	notmuch_message_destroy (message);
     }
@@ -514,7 +573,10 @@ notmuch_reply_format_default(void *ctx, notmuch_config_t *config, notmuch_query_
 
 /* This format is currently tuned for a git send-email --notmuch hook */
 static int
-notmuch_reply_format_headers_only(void *ctx, notmuch_config_t *config, notmuch_query_t *query)
+notmuch_reply_format_headers_only(void *ctx,
+				  notmuch_config_t *config,
+				  notmuch_query_t *query,
+				  unused (notmuch_show_params_t *params))
 {
     GMimeMessage *reply;
     notmuch_messages_t *messages;
@@ -575,8 +637,12 @@ notmuch_reply_command (void *ctx, int argc, char *argv[])
     notmuch_database_t *notmuch;
     notmuch_query_t *query;
     char *opt, *query_string;
+    notmuch_show_params_t params;
+    GMimeSession* session = NULL;
     int i, ret = 0;
-    int (*reply_format_func)(void *ctx, notmuch_config_t *config, notmuch_query_t *query);
+    int (*reply_format_func)(void *ctx, notmuch_config_t *config, notmuch_query_t *query, notmuch_show_params_t *params);
+
+    params.cryptoctx = NULL;
 
     reply_format_func = notmuch_reply_format_default;
 
@@ -595,6 +661,15 @@ notmuch_reply_command (void *ctx, int argc, char *argv[])
 		fprintf (stderr, "Invalid value for --format: %s\n", opt);
 		return 1;
 	    }
+	} else if (STRNCMP_LITERAL (argv[i], "--decrypt") == 0 &&
+		   params.cryptoctx == NULL) {
+	    session = g_object_new(notmuch_gmime_session_get_type(), NULL);
+	    if (NULL == (params.cryptoctx = g_mime_gpg_context_new(session, "gpg")))
+		fprintf (stderr, "Failed to construct gpg context\n");
+	    else
+		g_mime_gpg_context_set_always_trust((GMimeGpgContext*)params.cryptoctx, FALSE);
+	    g_object_unref (session);
+	    session = NULL;
 	} else {
 	    fprintf (stderr, "Unrecognized option: %s\n", argv[i]);
 	    return 1;
@@ -630,11 +705,14 @@ notmuch_reply_command (void *ctx, int argc, char *argv[])
 	return 1;
     }
 
-    if (reply_format_func (ctx, config, query) != 0)
+    if (reply_format_func (ctx, config, query, &params) != 0)
 	return 1;
 
     notmuch_query_destroy (query);
     notmuch_database_close (notmuch);
+
+    if (params.cryptoctx)
+	g_object_unref(params.cryptoctx);
 
     return ret;
 }

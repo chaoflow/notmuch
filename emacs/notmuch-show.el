@@ -26,11 +26,13 @@
 (require 'message)
 (require 'mm-decode)
 (require 'mailcap)
+(require 'icalendar)
 
 (require 'notmuch-lib)
 (require 'notmuch-query)
 (require 'notmuch-wash)
 (require 'notmuch-mua)
+(require 'notmuch-crypto)
 
 (declare-function notmuch-call-notmuch-process "notmuch" (&rest args))
 (declare-function notmuch-fontify-headers "notmuch" nil)
@@ -63,6 +65,17 @@ any given message."
   :group 'notmuch
   :type 'boolean)
 
+(defcustom notmuch-show-elide-same-subject nil
+  "Do not show the subject of a collapsed message if it is the
+same as that of the previous message."
+  :group 'notmuch
+  :type 'boolean)
+
+(defcustom notmuch-show-always-show-subject t
+  "Should a collapsed message show the `Subject:' line?"
+  :group 'notmuch
+  :type 'boolean)
+
 (defvar notmuch-show-markup-headers-hook '(notmuch-show-colour-headers)
   "A list of functions called to decorate the headers listed in
 `notmuch-message-headers'.")
@@ -81,6 +94,18 @@ any given message."
 	     notmuch-wash-tidy-citations
 	     notmuch-wash-elide-blank-lines
 	     notmuch-wash-excerpt-citations))
+
+;; Mostly useful for debugging.
+(defcustom notmuch-show-all-multipart/alternative-parts nil
+  "Should all parts of multipart/alternative parts be shown?"
+  :group 'notmuch
+  :type 'boolean)
+
+(defcustom notmuch-show-indent-multipart nil
+  "Should the sub-parts of a multipart/* part be indented?"
+  ;; dme: Not sure which is a good default.
+  :group 'notmuch
+  :type 'boolean)
 
 (defmacro with-current-notmuch-show-message (&rest body)
   "Evaluate body with current buffer set to the text of current message"
@@ -198,12 +223,30 @@ any given message."
 					     'face 'notmuch-tag-face)
 				 ")"))))))
 
+(defun notmuch-show-clean-address (address)
+  "Clean a single email address for display."
+  (let* ((parsed (mail-header-parse-address address))
+	 (address (car parsed))
+	 (name (cdr parsed)))
+    ;; Remove double quotes. They might be required during transport,
+    ;; but we don't need to see them.
+    (when name
+      (setq name (replace-regexp-in-string "\"" "" name)))
+    ;; If the address is 'foo@bar.com <foo@bar.com>' then show just
+    ;; 'foo@bar.com'.
+    (when (string= name address)
+      (setq name nil))
+
+    (if (not name)
+	address
+      (concat name " <" address ">"))))
+
 (defun notmuch-show-insert-headerline (headers date tags depth)
   "Insert a notmuch style headerline based on HEADERS for a
 message at DEPTH in the current thread."
   (let ((start (point)))
     (insert (notmuch-show-spaces-n depth)
-	    (plist-get headers :From)
+	    (notmuch-show-clean-address (plist-get headers :From))
 	    " ("
 	    date
 	    ") ("
@@ -236,7 +279,7 @@ message at DEPTH in the current thread."
   'follow-link t
   'face 'message-mml)
 
-(defun notmuch-show-insert-part-header (nth content-type declared-type &optional name)
+(defun notmuch-show-insert-part-header (nth content-type declared-type &optional name comment)
   (insert-button
    (concat "[ "
 	   (if name (concat name ": ") "")
@@ -244,6 +287,7 @@ message at DEPTH in the current thread."
 	   (if (not (string-equal declared-type content-type))
 	       (concat " (as " content-type ")")
 	     "")
+	   (or comment "")
 	   " ]\n")
    :type 'notmuch-show-part-button-type
    :notmuch-part nth
@@ -280,6 +324,197 @@ current buffer, if possible."
 	      t)
 	  nil)))))
 
+(defvar notmuch-show-multipart/alternative-discouraged
+  '(
+    ;; Avoid HTML parts.
+    "text/html"
+    ;; multipart/related usually contain a text/html part and some associated graphics.
+    "multipart/related"
+    ))
+
+(defun notmuch-show-multipart/*-to-list (part)
+  (mapcar '(lambda (inner-part) (plist-get inner-part :content-type))
+	  (plist-get part :content)))
+
+(defun notmuch-show-multipart/alternative-choose (types)
+  ;; Based on `mm-preferred-alternative-precedence'.
+  (let ((seq types))
+    (dolist (pref (reverse notmuch-show-multipart/alternative-discouraged))
+      (dolist (elem (copy-sequence seq))
+	(when (string-match pref elem)
+	  (setq seq (nconc (delete elem seq) (list elem))))))
+    seq))
+
+(defun notmuch-show-insert-part-multipart/alternative (msg part content-type nth depth declared-type)
+  (notmuch-show-insert-part-header nth declared-type content-type nil)
+  (let ((chosen-type (car (notmuch-show-multipart/alternative-choose (notmuch-show-multipart/*-to-list part))))
+	(inner-parts (plist-get part :content))
+	(start (point)))
+    ;; This inserts all parts of the chosen type rather than just one,
+    ;; but it's not clear that this is the wrong thing to do - which
+    ;; should be chosen if there are more than one that match?
+    (mapc (lambda (inner-part)
+	    (let ((inner-type (plist-get inner-part :content-type)))
+	      (if (or notmuch-show-all-multipart/alternative-parts
+		      (string= chosen-type inner-type))
+		  (notmuch-show-insert-bodypart msg inner-part depth)
+		(notmuch-show-insert-part-header (plist-get inner-part :id) inner-type inner-type nil " (not shown)"))))
+	  inner-parts)
+
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-setup-w3m ()
+  (unless (assq 'notmuch-show-mode w3m-cid-retrieve-function-alist)
+    (push (cons 'notmuch-show-mode 'notmuch-show-w3m-cid-retrieve)
+	  w3m-cid-retrieve-function-alist))
+  (setq mm-inline-text-html-with-images t))
+
+(defvar w3m-current-buffer) ;; From `w3m.el'.
+(defvar notmuch-show-w3m-cid-store nil)
+(make-variable-buffer-local 'notmuch-show-w3m-cid-store)
+
+(defun notmuch-show-w3m-cid-store-internal (content-id
+					    message-id
+					    part-number
+					    content-type
+					    content)
+  (push (list content-id
+	      message-id
+	      part-number
+	      content-type
+	      content)
+	notmuch-show-w3m-cid-store))
+
+(defun notmuch-show-w3m-cid-store (msg part)
+  (let ((content-id (plist-get part :content-id)))
+    (when content-id
+      (notmuch-show-w3m-cid-store-internal (concat "cid:" content-id)
+					   (plist-get msg :id)
+					   (plist-get part :id)
+					   (plist-get part :content-type)
+					   nil))))
+
+(defun notmuch-show-w3m-cid-retrieve (url &rest args)
+  (let ((matching-part (with-current-buffer w3m-current-buffer
+			 (assoc url notmuch-show-w3m-cid-store))))
+    (if matching-part
+	(let ((message-id (nth 1 matching-part))
+	      (part-number (nth 2 matching-part))
+	      (content-type (nth 3 matching-part))
+	      (content (nth 4 matching-part)))
+	  ;; If we don't already have the content, get it and cache
+	  ;; it, as some messages reference the same cid: part many
+	  ;; times (hundreds!), which results in many calls to
+	  ;; `notmuch part'.
+	  (unless content
+	    (setq content (notmuch-show-get-bodypart-internal (concat "id:" message-id)
+							      part-number))
+	    (with-current-buffer w3m-current-buffer
+	      (notmuch-show-w3m-cid-store-internal url
+						   message-id
+						   part-number
+						   content-type
+						   content)))
+	  (insert content)
+	  content-type)
+      nil)))
+
+(defun notmuch-show-insert-part-multipart/related (msg part content-type nth depth declared-type)
+  (notmuch-show-insert-part-header nth declared-type content-type nil)
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+
+    ;; We assume that the first part is text/html and the remainder
+    ;; things that it references.
+
+    ;; Stash the non-primary parts.
+    (mapc (lambda (part)
+	    (notmuch-show-w3m-cid-store msg part))
+	  (cdr inner-parts))
+
+    ;; Render the primary part.
+    (notmuch-show-insert-bodypart msg (car inner-parts) depth)
+
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-insert-part-multipart/signed (msg part content-type nth depth declared-type)
+  (if (plist-member part :sigstatus)
+      (let* ((headers (plist-get msg :headers))
+	     (from (plist-get headers :From))
+	     (sigstatus (car (plist-get part :sigstatus))))
+	(notmuch-crypto-insert-sigstatus-button sigstatus from))
+    (insert-button "[ multipart/signed ]\n"
+		   :type 'notmuch-crypto-status-button-type))
+
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+    (if (plist-member part :sigstatus)
+	;; if sigstatus render only the primary part
+	(notmuch-show-insert-bodypart msg (car inner-parts) depth)
+      ;; else show all of the parts.
+      (mapc (lambda (inner-part)
+	      (notmuch-show-insert-bodypart msg inner-part depth))
+	    inner-parts))
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-insert-part-multipart/encrypted (msg part content-type nth depth declared-type)
+  (if (plist-member part :encstatus)
+      (let* ((encstatus (car (plist-get part :encstatus))))
+	(notmuch-crypto-insert-encstatus-button encstatus))
+    (insert-button "[ multipart/encrypted ]\n"
+		   :type 'notmuch-crypto-status-button-type))
+
+  (if (plist-member part :sigstatus)
+      (let* ((headers (plist-get msg :headers))
+	     (from (plist-get headers :From))
+	     (sigstatus (car (plist-get part :sigstatus))))
+	(if (plist-member sigstatus :status)
+	    (notmuch-crypto-insert-sigstatus-button sigstatus from))))
+
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+    (mapc (lambda (inner-part)
+	    (notmuch-show-insert-bodypart msg inner-part depth))
+	  inner-parts)
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-insert-part-multipart/* (msg part content-type nth depth declared-type)
+  (notmuch-show-insert-part-header nth declared-type content-type nil)
+  (let ((inner-parts (plist-get part :content))
+	(start (point)))
+    ;; Show all of the parts.
+    (mapc (lambda (inner-part)
+	    (notmuch-show-insert-bodypart msg inner-part depth))
+	  inner-parts)
+
+    (when notmuch-show-indent-multipart
+      (indent-rigidly start (point) 1)))
+  t)
+
+(defun notmuch-show-insert-part-message/rfc822 (msg part content-type nth depth declared-type)
+  (let* ((message-part (plist-get part :content))
+	 (inner-parts (plist-get message-part :content)))
+    (notmuch-show-insert-part-header nth declared-type content-type nil)
+    ;; Override `notmuch-message-headers' to force `From' to be
+    ;; displayed.
+    (let ((notmuch-message-headers '("From" "Subject" "To" "Cc" "Date")))
+      (notmuch-show-insert-headers (plist-get part :headers)))
+    ;; Blank line after headers to be compatible with the normal
+    ;; message display.
+    (insert "\n")
+
+    ;; Show the content of the included message.
+    (notmuch-show-insert-bodypart msg message-part depth))
+  t)
+
 (defun notmuch-show-insert-part-text/plain (msg part content-type nth depth declared-type)
   (let ((start (point)))
     ;; If this text/plain part is not the first part in the message,
@@ -291,6 +526,24 @@ current buffer, if possible."
       (save-restriction
 	(narrow-to-region start (point-max))
 	(run-hook-with-args 'notmuch-show-insert-text/plain-hook depth))))
+  t)
+
+(defun notmuch-show-insert-part-text/x-vcalendar (msg part content-type nth depth declared-type)
+  (notmuch-show-insert-part-header nth declared-type content-type (plist-get part :filename))
+  (insert (with-temp-buffer
+	    (insert (notmuch-show-get-bodypart-content msg part nth))
+	    (goto-char (point-min))
+	    (let ((file (make-temp-file "notmuch-ical"))
+		  result)
+	      (icalendar--convert-ical-to-diary
+	       (icalendar--read-element nil nil)
+	       file t)
+	      (set-buffer (get-file-buffer file))
+	      (setq result (buffer-substring (point-min) (point-max)))
+	      (set-buffer-modified-p nil)
+	      (kill-buffer (current-buffer))
+	      (delete-file file)
+	      result)))
   t)
 
 (defun notmuch-show-insert-part-application/octet-stream (msg part content-type nth depth declared-type)
@@ -344,7 +597,7 @@ current buffer, if possible."
   (with-temp-buffer
     (let ((coding-system-for-read 'no-conversion))
       (call-process notmuch-command nil t nil
-		    "part" (format "--part=%s" part-number) message-id)
+		    "show" "--format=part" (format "--part=%s" part-number) message-id)
       (buffer-string))))
 
 (defun notmuch-show-get-bodypart-content (msg part nth)
@@ -438,8 +691,9 @@ current buffer, if possible."
       ;; If the subject of this message is the same as that of the
       ;; previous message, don't display it when this message is
       ;; collapsed.
-      (when (not (string= notmuch-show-previous-subject
-			  bare-subject))
+      (when (and notmuch-show-elide-same-subject
+		 (not (string= notmuch-show-previous-subject
+			       bare-subject)))
 	(forward-line 1))
       (setq headers-start (point-marker)))
     (setq headers-end (point-marker))
@@ -500,7 +754,7 @@ current buffer, if possible."
 (defvar notmuch-show-parent-buffer nil)
 
 ;;;###autoload
-(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name)
+(defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name crypto-switch)
   "Run \"notmuch show\" with the given thread ID and display results.
 
 The optional PARENT-BUFFER is the notmuch-search buffer from
@@ -520,6 +774,9 @@ function is used. "
   (let ((buffer (get-buffer-create (generate-new-buffer-name
 				    (or buffer-name
 					(concat "*notmuch-" thread-id "*")))))
+	(process-crypto (if crypto-switch
+			    (not notmuch-crypto-process-mime)
+			  notmuch-crypto-process-mime))
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)
@@ -531,13 +788,13 @@ function is used. "
 	     (args (if query-context
 		       (append (list "\'") basic-args (list "and (" query-context ")\'"))
 		     (append (list "\'") basic-args (list "\'")))))
-	(notmuch-show-insert-forest (notmuch-query-get-threads args))
+	(notmuch-show-insert-forest (notmuch-query-get-threads args process-crypto))
 	;; If the query context reduced the results to nothing, run
 	;; the basic query.
 	(when (and (eq (buffer-size) 0)
 		   query-context)
 	  (notmuch-show-insert-forest
-	   (notmuch-query-get-threads basic-args))))
+	   (notmuch-query-get-threads basic-args process-crypto))))
 
       ;; Enable buttonisation of URLs and email addresses in the
       ;; buffer.

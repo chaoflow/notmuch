@@ -39,6 +39,7 @@ TESTS="
   emacs-large-search-buffer
   maildir-sync
   atomicity
+  crypto
 "
 
 # Clean up any results from a previous run

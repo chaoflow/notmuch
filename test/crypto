@@ -1,0 +1,304 @@
+#!/bin/bash
+
+# TODO:
+# - decryption/verification with signer key not available
+# - verification of signatures from expired/revoked keys
+
+test_description='PGP/MIME signature verification and decryption'
+. ./test-lib.sh
+
+add_gnupg_home ()
+{
+    local output
+    [ -d ${GNUPGHOME} ] && return
+    mkdir -m 0700 "$GNUPGHOME"
+    gpg --no-tty --import <../gnupg-secret-key.asc >"$GNUPGHOME"/import.log 2>&1
+    test_debug "cat $GNUPGHOME/import.log"
+    if (gpg --quick-random --version >/dev/null 2>&1) ; then
+	echo quick-random >> "$GNUPGHOME"/gpg.conf
+    elif (gpg --debug-quick-random --version >/dev/null 2>&1) ; then
+	echo debug-quick-random >> "$GNUPGHOME"/gpg.conf
+    fi
+}
+
+emacs_deliver_message ()
+{
+    local subject="$1"
+    local body="$2"
+    local cryptocmd="$3"
+    # before we can send a message, we have to prepare the FCC maildir
+    mkdir -p mail/sent/{cur,new,tmp}
+    ../smtp-dummy sent_message &
+    smtp_dummy_pid=$!
+    test_emacs "(setq message-send-mail-function 'message-smtpmail-send-it) (setq smtpmail-smtp-server \"localhost\") (setq smtpmail-smtp-service \"25025\") (notmuch-hello) (notmuch-mua-mail) (message-goto-to) (insert \"test_suite@notmuchmail.org\nDate: 01 Jan 2000 12:00:00 -0000\") (message-goto-subject) (insert \"${subject}\") (message-goto-body) (insert \"${body}\") (${cryptocmd}) (message-send-and-exit)" >/dev/null 2>&1
+    wait ${smtp_dummy_pid}
+    notmuch new >/dev/null
+}
+
+##################################################
+
+add_gnupg_home
+# get key fingerprint
+FINGERPRINT=$(gpg --no-tty --list-secret-keys --with-colons --fingerprint | grep '^fpr:' | cut -d: -f10)
+
+# for some reason this is needed for emacs_deliver_message to work,
+# although I can't figure out why
+add_email_corpus
+
+test_begin_subtest "signing/verification"
+emacs_deliver_message \
+    "test signed message 001" \
+    "This is a test signed message." \
+    mml-secure-message-sign
+output=$(notmuch show --format=json --verify subject:"test signed message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["inbox","signed"],
+ "headers": {"Subject": "test signed message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/signed",
+ "sigstatus": [{"status": "good","fingerprint": "'$FINGERPRINT'","created": 946728000}],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test signed message.\n"},
+{"id": 3,
+ "content-type": "application/pgp-signature"}]}
+]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_begin_subtest "signing/verification with full owner trust"
+# give the key full owner trust
+echo "${FINGERPRINT}:6:" | gpg --no-tty --import-ownertrust >>"$GNUPGHOME"/trust.log 2>&1
+gpg --no-tty --check-trustdb >>"$GNUPGHOME"/trust.log 2>&1
+output=$(notmuch show --format=json --verify subject:"test signed message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["inbox","signed"],
+ "headers": {"Subject": "test signed message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/signed",
+ "sigstatus": [{"status": "good","fingerprint": "'$FINGERPRINT'","created": 946728000,"userid": " Notmuch Test Suite <test_suite@notmuchmail.org> (INSECURE!)"}],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test signed message.\n"},
+{"id": 3,
+ "content-type": "application/pgp-signature"}]}
+]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_begin_subtest "verification with signer key unavailable"
+# move the gnupghome temporarily out of the way
+mv "${GNUPGHOME}"{,.bak}
+output=$(notmuch show --format=json --verify subject:"test signed message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["inbox","signed"],
+ "headers": {"Subject": "test signed message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/signed",
+ "sigstatus": [{"status": "error","keyid": "'$(echo $FINGERPRINT | cut -c 25-)'",
+ "errors": 2
+}],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test signed message.\n"},
+{"id": 3,
+ "content-type": "application/pgp-signature"}]}
+]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+mv "${GNUPGHOME}"{.bak,}
+
+test_begin_subtest "encryption/decryption"
+emacs_deliver_message \
+    "test encrypted message 001" \
+    "This is a test encrypted message." \
+    mml-secure-message-encrypt
+output=$(notmuch show --format=json --decrypt subject:"test encrypted message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["encrypted","inbox"],
+ "headers": {"Subject": "test encrypted message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/encrypted",
+ "encstatus": [{"status": "good"}],
+ "sigstatus": [],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test encrypted message.\n"}]}]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_begin_subtest "decryption failure with missing key"
+mv "${GNUPGHOME}"{,.bak}
+output=$(notmuch show --format=json --decrypt subject:"test encrypted message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["encrypted","inbox"],
+ "headers": {"Subject": "test encrypted message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/encrypted",
+ "encstatus": [{"status": "bad"}],
+ "content": [
+{"id": 2,
+ "content-type": "application/pgp-encrypted"},
+{"id": 3,
+ "content-type": "application/octet-stream"}]}
+]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+mv "${GNUPGHOME}"{.bak,}
+
+test_begin_subtest "encryption/decryption + signing/verfifying"
+emacs_deliver_message \
+    "test encrypted message 002" \
+    "This is a test encrypted message." \
+    mml-secure-message-sign-encrypt
+output=$(notmuch show --format=json --decrypt subject:"test encrypted message 002" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["encrypted","inbox"],
+ "headers": {"Subject": "test encrypted message 002",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/encrypted",
+ "encstatus": [{"status": "good"}],
+ "sigstatus": [{"status": "good","fingerprint": "'$FINGERPRINT'","created": 946728000,"userid": " Notmuch Test Suite <test_suite@notmuchmail.org> (INSECURE!)"}],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test encrypted message.\n"}]}]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_begin_subtest "reply to encrypted message"
+output=$(notmuch reply --decrypt subject:"test encrypted message 002" \
+    | grep -v -e '^In-Reply-To:' -e '^References:')
+expected='From: Notmuch Test Suite <test_suite@notmuchmail.org>
+Subject: Re: test encrypted message 002
+
+On 01 Jan 2000 12:00:00 -0000, Notmuch Test Suite <test_suite@notmuchmail.org> wrote:
+> This is a test encrypted message.'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_begin_subtest "verification of signature from revoked key"
+# generate revokation certificate and load it to revoke key
+echo "y
+1
+Notmuch Test Suite key revocation (automated) $(date '+%F_%T%z')
+
+y
+
+" \
+    | gpg --no-tty --quiet --command-fd 0 --armor --gen-revoke "0x${FINGERPRINT}!" 2>/dev/null \
+    | gpg --no-tty --quiet --import
+output=$(notmuch show --format=json --verify subject:"test signed message 001" \
+    | notmuch_json_show_sanitize \
+    | sed -e 's|"created": [1234567890]*|"created": 946728000|')
+expected='[[[{"id": "XXXXX",
+ "match": true,
+ "filename": "YYYYY",
+ "timestamp": 946728000,
+ "date_relative": "2000-01-01",
+ "tags": ["inbox","signed"],
+ "headers": {"Subject": "test signed message 001",
+ "From": "Notmuch Test Suite <test_suite@notmuchmail.org>",
+ "To": "test_suite@notmuchmail.org",
+ "Cc": "",
+ "Bcc": "",
+ "Date": "01 Jan 2000 12:00:00 -0000"},
+ "body": [{"id": 1,
+ "content-type": "multipart/signed",
+ "sigstatus": [],
+ "content": [
+{"id": 2,
+ "content-type": "text/plain",
+ "content": "This is a test signed message.\n"},
+{"id": 3,
+ "content-type": "application/pgp-signature"}]}
+]},
+ []]]]'
+test_expect_equal \
+    "$output" \
+    "$expected"
+
+test_done

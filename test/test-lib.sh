@@ -480,6 +480,14 @@ notmuch_show_sanitize ()
     sed -e "$NOTMUCH_SHOW_FILENAME_SQUELCH"
 }
 
+notmuch_json_show_sanitize ()
+{
+    sed -e 's|, |,\n |g' | \
+	sed \
+	-e 's|"id": "[^"]*",|"id": "XXXXX",|' \
+	-e 's|"filename": "[^"]*",|"filename": "YYYYY",|'
+}
+
 # End of notmuch helper functions
 
 # Use test_set_prereq to tell that a particular prerequisite is available.
@@ -916,6 +924,7 @@ rm -fr "$test" || {
 }
 
 MAIL_DIR="${TMP_DIRECTORY}/mail"
+export GNUPGHOME="${TMP_DIRECTORY}/gnupg"
 export NOTMUCH_CONFIG="${TMP_DIRECTORY}/notmuch-config"
 
 mkdir -p "${test}"

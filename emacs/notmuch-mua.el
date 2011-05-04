@@ -69,13 +69,21 @@ list."
 	    (push header message-hidden-headers)))
 	notmuch-mua-hidden-headers))
 
-(defun notmuch-mua-reply (query-string)
-  (let (headers body)
+(defun notmuch-mua-reply (query-string &optional decrypt-switch)
+  (let (headers
+	body
+	(args '("reply"))
+	(decrypt (if decrypt-switch
+		     (not notmuch-crypto-process-mime)
+		   notmuch-crypto-process-mime)))
+    (if decrypt
+	(setq args (append args '("--decrypt"))))
+    (setq args (append args (list query-string)))
     ;; This make assumptions about the output of `notmuch reply', but
     ;; really only that the headers come first followed by a blank
     ;; line and then the body.
     (with-temp-buffer
-      (call-process notmuch-command nil t nil "reply" query-string)
+      (apply 'call-process (append (list notmuch-command nil (list t t) nil) args))
       (goto-char (point-min))
       (if (re-search-forward "^$" nil t)
 	  (save-excursion

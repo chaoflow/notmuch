@@ -32,7 +32,9 @@ typedef struct show_format {
     const char *header_end;
     const char *body_start;
     void (*part) (GMimeObject *part,
-		  int *part_count);
+		  int *part_count,
+		  gboolean first,
+		  notmuch_show_params_t *params);
     const char *body_end;
     const char *message_end;
     const char *message_set_sep;
@@ -48,7 +50,9 @@ format_headers_text (const void *ctx,
 		     notmuch_message_t *message);
 static void
 format_part_text (GMimeObject *part,
-		  int *part_count);
+		  int *part_count,
+		  gboolean first,
+		  notmuch_show_params_t *params);
 static const show_format_t format_text = {
     "",
 	"\fmessage{ ", format_message_text,
@@ -67,7 +71,9 @@ format_headers_json (const void *ctx,
 		     notmuch_message_t *message);
 static void
 format_part_json (GMimeObject *part,
-		  int *part_count);
+		  int *part_count,
+		  gboolean first,
+		  notmuch_show_params_t *params);
 static const show_format_t format_json = {
     "[",
 	"{", format_message_json,
@@ -88,6 +94,27 @@ static const show_format_t format_mbox = {
             "", NULL, "",
             "", NULL, "",
         "", "",
+    ""
+};
+
+static void
+format_message_part (const void *ctx,
+		     notmuch_message_t *message,
+		     unused (int indent));
+static void
+format_headers_part (const void *ctx,
+		     notmuch_message_t *message);
+static void
+format_part_part (GMimeObject *part,
+		  int *part_count,
+		  gboolean first,
+		  notmuch_show_params_t *params);
+static const show_format_t format_part = {
+    "",
+	"", format_message_part,
+	    "", format_headers_part, "",
+	    "", format_part_part, "",
+	"", "",
     ""
 };
 
@@ -284,6 +311,13 @@ format_message_mbox (const void *ctx,
 }
 
 static void
+format_message_part (unused (const void *ctx),
+		     unused (notmuch_message_t *message),
+		     unused (int indent))
+{
+}
+
+static void
 format_headers_text (const void *ctx, notmuch_message_t *message)
 {
     const char *headers[] = {
@@ -332,6 +366,12 @@ format_headers_json (const void *ctx, notmuch_message_t *message)
 }
 
 static void
+format_headers_part (unused (const void *ctx),
+		     unused (notmuch_message_t *message))
+{
+}
+
+static void
 show_part_content (GMimeObject *part, GMimeStream *stream_out)
 {
     GMimeStream *stream_filter = NULL;
@@ -364,10 +404,59 @@ show_part_content (GMimeObject *part, GMimeStream *stream_out)
 }
 
 static void
-format_part_text (GMimeObject *part, int *part_count)
+format_part_text (GMimeObject *part,
+		  int *part_count,
+		  gboolean first,
+		  unused (notmuch_show_params_t *params))
 {
     GMimeContentDisposition *disposition;
     GMimeContentType *content_type;
+
+    /* Avoid compiler complaints about unused arguments. */
+    (void) first;
+
+    *part_count += 1;
+
+    if (GMIME_IS_MULTIPART (part)) {
+	GMimeMultipart *multipart = GMIME_MULTIPART (part);
+	int i;
+
+	for (i = 0; i < g_mime_multipart_get_count (multipart); i++) {
+		format_part_text (g_mime_multipart_get_part (multipart, i),
+				  part_count, i == 0, params);
+	}
+
+	return;
+    }
+
+    if (GMIME_IS_MESSAGE_PART (part)) {
+	GMimeMessage *mime_message;
+	const char *value;
+	InternetAddressList *addresses;
+
+	mime_message = g_mime_message_part_get_message (GMIME_MESSAGE_PART (part));
+
+	/* Insert the headers of the enclosed message. */
+	fputs (format_text.header_start, stdout);
+
+	value = g_mime_message_get_sender(mime_message);
+	printf ("From: %s\n", value);
+	value = g_mime_message_get_subject(mime_message);
+	printf ("Subject: %s\n", value);
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_TO);
+	printf ("To: %s\n", internet_address_list_to_string (addresses, FALSE));
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_CC);
+	printf ("Cc: %s\n", internet_address_list_to_string (addresses, FALSE));
+	value = g_mime_message_get_date_as_string(mime_message);
+	printf ("Date: %s\n", value);
+
+	fputs (format_text.header_end, stdout);
+
+	format_part_text (g_mime_message_get_mime_part (mime_message),
+			  part_count, TRUE, params);
+
+	return;
+    }
 
     disposition = g_mime_object_get_content_disposition (part);
     if (disposition &&
@@ -419,23 +508,219 @@ format_part_text (GMimeObject *part, int *part_count)
     printf ("\fpart}\n");
 }
 
+static const char*
+signerstatustostring (GMimeSignerStatus x)
+{
+    switch (x) {
+    case GMIME_SIGNER_STATUS_NONE:
+	return "none";
+    case GMIME_SIGNER_STATUS_GOOD:
+	return "good";
+    case GMIME_SIGNER_STATUS_BAD:
+	return "bad";
+    case GMIME_SIGNER_STATUS_ERROR:
+	return "error";
+    }
+    return "unknown";
+}
+
+
 static void
-format_part_json (GMimeObject *part, int *part_count)
+format_sigstatus_json (const GMimeSignatureValidity* validity)
+{
+    const GMimeSigner *signer = NULL;
+    int first = 1;
+    void *ctx_quote = NULL;
+
+    ctx_quote = talloc_new (NULL);
+    signer = g_mime_signature_validity_get_signers (validity);
+    while (signer) {
+	if (first)
+	    first = 0;
+	else
+	    printf (",");
+
+	printf ("{");
+
+	/* status */
+	printf ("\"status\": %s", json_quote_str (ctx_quote, signerstatustostring(signer->status)));
+
+	if (signer->status == GMIME_SIGNER_STATUS_GOOD)
+	{
+	    if (signer->fingerprint)
+		printf (",\"fingerprint\": %s", json_quote_str (ctx_quote, signer->fingerprint));
+	    /* these dates are seconds since the epoch; should we
+	     * provide a more human-readable format string? */
+	    if (signer->created)
+		printf (",\"created\": %d", (int) signer->created);
+	    if (signer->expires)
+		printf (",\"expires\": %d", (int) signer->expires);
+	    /* output user id only if validity is FULL or ULTIMATE. */
+	    /* note that gmime is using the term "trust" here, which
+	     * is WRONG.  It's actually user id "validity". */
+	    if ((signer->name) && (signer->trust)) {
+		if ((signer->trust == GMIME_SIGNER_TRUST_FULLY) || (signer->trust == GMIME_SIGNER_TRUST_ULTIMATE))
+		    printf (",\"userid\": %s", json_quote_str (ctx_quote, signer->name));
+	    }
+	} else {
+	    if (signer->keyid)
+		printf (",\"keyid\": %s", json_quote_str (ctx_quote, signer->keyid));
+	}
+	if (signer->errors != GMIME_SIGNER_ERROR_NONE) {
+	    printf (", \"errors\": %x\n", signer->errors);
+	}
+	printf ("}");
+	signer = signer->next;
+    }
+    talloc_free (ctx_quote);
+}
+
+static void
+format_part_json (GMimeObject *part,
+		  int *part_count,
+		  gboolean first,
+		  notmuch_show_params_t *params)
+
 {
     GMimeContentType *content_type;
     GMimeContentDisposition *disposition;
+    GError* err = NULL;
     void *ctx = talloc_new (NULL);
     GMimeStream *stream_memory = g_mime_stream_mem_new ();
     GByteArray *part_content;
+    const char *cid;
+
+    *part_count += 1;
 
     content_type = g_mime_object_get_content_type (GMIME_OBJECT (part));
 
-    if (*part_count > 1)
-	fputs (", ", stdout);
+    if (!first)
+	fputs (",\n", stdout);
 
     printf ("{\"id\": %d, \"content-type\": %s",
 	    *part_count,
 	    json_quote_str (ctx, g_mime_content_type_to_string (content_type)));
+
+    cid = g_mime_object_get_content_id (part);
+    if (cid != NULL)
+	    printf(", \"content-id\": %s",
+		   json_quote_str (ctx, cid));
+
+    if (GMIME_IS_MULTIPART (part)) {
+	GMimeMultipart *multipart = GMIME_MULTIPART (part);
+	int i;
+
+	if (params->cryptoctx && params->decryptflag && GMIME_IS_MULTIPART_ENCRYPTED (part)) {
+	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
+		/* this violates RFC 3156 section 4, so we won't bother with it. */
+		fprintf (stderr,
+			 "Error: %d part(s) for a multipart/encrypted message (should be exactly 2)\n",
+			 g_mime_multipart_get_count (multipart));
+	    } else {
+		GMimeMultipartEncrypted *encrypteddata = GMIME_MULTIPART_ENCRYPTED (part);
+		part = g_mime_multipart_encrypted_decrypt (encrypteddata, params->cryptoctx, &err);
+		printf (", \"encstatus\": [{\"status\": ");
+		if (part) {
+		    printf ("\"good\"");
+		} else {
+		    printf ("\"bad\"");
+		    fprintf (stderr, "Failed to decrypt part: %s\n", (err ? err->message : "no error explanation given"));
+		}
+		printf ("}]");
+		if (part) {
+		    const GMimeSignatureValidity *sigvalidity = g_mime_multipart_encrypted_get_signature_validity (encrypteddata);
+		    printf (", \"sigstatus\": [");
+		    if (!sigvalidity) {
+			fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
+		    } else {
+			format_sigstatus_json (sigvalidity);
+		    }
+		    printf ("]");
+		    printf (", \"content\": [\n");
+		    format_part_json (part, part_count, first, params);
+		    printf ("]}");
+
+		    if (err)
+			g_error_free (err);
+		    return;
+		}
+	    }
+	}
+
+	if (params->cryptoctx && GMIME_IS_MULTIPART_SIGNED (part)) {
+	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
+		/* this violates RFC 3156 section 5, so we won't bother with it. */
+		fprintf (stderr,
+			 "Error: %d part(s) for a multipart/signed message (should be exactly 2)\n",
+			 g_mime_multipart_get_count (multipart));
+	    } else {
+		/* For some reason the GMimeSignatureValidity returned
+		 * here is not a const (inconsistent with that
+		 * returned by
+		 * g_mime_multipart_encrypted_get_signature_validity,
+		 * and therefore needs to be properly disposed of.
+		 * Hopefully the API will become more consistent. */
+		GMimeSignatureValidity *sigvalidity = g_mime_multipart_signed_verify (GMIME_MULTIPART_SIGNED (part), params->cryptoctx, &err);
+		printf (", \"sigstatus\": [");
+		if (!sigvalidity) {
+		    fprintf (stderr, "Failed to verify signed part: %s\n", (err ? err->message : "no error explanation given"));
+		} else {
+		    format_sigstatus_json (sigvalidity);
+		    g_mime_signature_validity_free (sigvalidity);
+		}
+		printf ("]");
+	    }
+	}
+
+	printf (", \"content\": [\n");
+
+	for (i = 0; i < g_mime_multipart_get_count (multipart); i++) {
+		format_part_json (g_mime_multipart_get_part (multipart, i),
+				  part_count, i == 0, params);
+	}
+
+	printf ("]}\n");
+
+       if (err)
+	   g_error_free (err);
+	return;
+    }
+
+    if (GMIME_IS_MESSAGE_PART (part)) {
+	GMimeMessage *mime_message;
+	void *ctx_quote = talloc_new (ctx);
+	const char *value;
+	InternetAddressList *addresses;
+
+	mime_message = g_mime_message_part_get_message (GMIME_MESSAGE_PART (part));
+
+	/* Insert the headers of the enclosed message. */
+	printf (", \"headers\": {");
+
+	value = g_mime_message_get_sender(mime_message);
+	printf ("\"From\": %s,", json_quote_str (ctx_quote, value));
+	value = g_mime_message_get_subject(mime_message);
+	printf ("\"Subject\": %s,", json_quote_str (ctx_quote, value));
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_TO);
+	printf ("\"To\": %s,", json_quote_str (ctx_quote, internet_address_list_to_string (addresses, FALSE)));
+	addresses = g_mime_message_get_recipients(mime_message, GMIME_RECIPIENT_TYPE_CC);
+	printf ("\"Cc\": %s,", json_quote_str (ctx_quote, internet_address_list_to_string (addresses, FALSE)));
+	value = g_mime_message_get_date_as_string(mime_message);
+	printf ("\"Date\": %s", json_quote_str (ctx_quote, value));
+
+	talloc_free (ctx_quote);
+
+	printf ("}\n");
+
+	printf (", \"content\": \n");
+
+	format_part_json (g_mime_message_get_mime_part (mime_message),
+			  part_count, TRUE, params);
+
+	printf ("}\n");
+
+	return;
+    }
 
     disposition = g_mime_object_get_content_disposition (part);
     if (disposition &&
@@ -463,7 +748,56 @@ format_part_json (GMimeObject *part, int *part_count)
 }
 
 static void
-show_message (void *ctx, const show_format_t *format, notmuch_message_t *message, int indent)
+format_part_part (GMimeObject *part,
+		  int *part_count,
+		  unused (gboolean first),
+		  notmuch_show_params_t *params)
+{
+    GMimeStream *stream_filter = NULL;
+    GMimeDataWrapper *wrapper;
+    GMimeStream *stream_stdout = g_mime_stream_file_new (stdout);
+
+    *part_count += 1;
+
+    if (GMIME_IS_MULTIPART (part)) {
+	GMimeMultipart *multipart = GMIME_MULTIPART (part);
+	int i;
+
+	for (i = 0; i < g_mime_multipart_get_count (multipart); i++) {
+		format_part_part (g_mime_multipart_get_part (multipart, i),
+				  part_count, i == 0, params);
+	}
+
+	return;
+    }
+
+    if (GMIME_IS_MESSAGE_PART (part)) {
+	GMimeMessage *mime_message;
+
+	mime_message = g_mime_message_part_get_message (GMIME_MESSAGE_PART (part));
+
+	format_part_part (g_mime_message_get_mime_part (mime_message),
+			  part_count, TRUE, params);
+	return;
+    }
+
+    if (*part_count == params->part) {
+	    stream_filter = g_mime_stream_filter_new(stream_stdout);
+	    wrapper = g_mime_part_get_content_object (GMIME_PART (part));
+	    if (wrapper && stream_filter)
+		    g_mime_data_wrapper_write_to_stream (wrapper, stream_filter);
+	    if (stream_filter)
+		    g_object_unref(stream_filter);
+    }
+
+}
+
+static void
+show_message (void *ctx,
+	      const show_format_t *format,
+	      notmuch_message_t *message,
+	      int indent,
+	      notmuch_show_params_t *params)
 {
     fputs (format->message_start, stdout);
     if (format->message)
@@ -476,7 +810,8 @@ show_message (void *ctx, const show_format_t *format, notmuch_message_t *message
 
     fputs (format->body_start, stdout);
     if (format->part)
-	show_message_body (notmuch_message_get_filename (message), format->part);
+	show_message_body (notmuch_message_get_filename (message), format->part,
+			   params);
     fputs (format->body_end, stdout);
 
     fputs (format->message_end, stdout);
@@ -485,7 +820,7 @@ show_message (void *ctx, const show_format_t *format, notmuch_message_t *message
 
 static void
 show_messages (void *ctx, const show_format_t *format, notmuch_messages_t *messages, int indent,
-	       notmuch_bool_t entire_thread)
+	       notmuch_bool_t entire_thread, notmuch_show_params_t *params)
 {
     notmuch_message_t *message;
     notmuch_bool_t match;
@@ -511,14 +846,14 @@ show_messages (void *ctx, const show_format_t *format, notmuch_messages_t *messa
 	next_indent = indent;
 
 	if (match || entire_thread) {
-	    show_message (ctx, format, message, indent);
+	    show_message (ctx, format, message, indent, params);
 	    next_indent = indent + 1;
 
 	    fputs (format->message_set_sep, stdout);
 	}
 
 	show_messages (ctx, format, notmuch_message_get_replies (message),
-		       next_indent, entire_thread);
+		       next_indent, entire_thread, params);
 
 	notmuch_message_destroy (message);
 
@@ -579,7 +914,8 @@ static int
 do_show (void *ctx,
 	 notmuch_query_t *query,
 	 const show_format_t *format,
-	 int entire_thread)
+	 int entire_thread,
+	 notmuch_show_params_t *params)
 {
     notmuch_threads_t *threads;
     notmuch_thread_t *thread;
@@ -604,7 +940,7 @@ do_show (void *ctx,
 	    fputs (format->message_set_sep, stdout);
 	first_toplevel = 0;
 
-	show_messages (ctx, format, messages, 0, entire_thread);
+	show_messages (ctx, format, messages, 0, entire_thread, params);
 
 	notmuch_thread_destroy (thread);
 
@@ -614,6 +950,7 @@ do_show (void *ctx,
 
     return 0;
 }
+
 
 int
 notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
@@ -625,8 +962,15 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
     char *opt;
     const show_format_t *format = &format_text;
     int entire_thread = 0;
+    int one_message = 0;
+    notmuch_show_params_t params;
     int i;
     int raw = 0;
+    GMimeSession* session = NULL;
+
+    params.part = 0;
+    params.cryptoctx = NULL;
+    params.decryptflag = FALSE;
 
     for (i = 0; i < argc && argv[i][0] == '-'; i++) {
 	if (strcmp (argv[i], "--") == 0) {
@@ -644,12 +988,28 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
 		format = &format_mbox;
 	    } else if (strcmp (opt, "raw") == 0) {
 		raw = 1;
+	    } else if (strcmp (opt, "part") == 0) {
+		format = &format_part;
+		one_message = 1;
 	    } else {
 		fprintf (stderr, "Invalid value for --format: %s\n", opt);
 		return 1;
 	    }
+	} else if ((STRNCMP_LITERAL (argv[i], "--verify") == 0 || (STRNCMP_LITERAL (argv[i], "--decrypt") == 0)) &&
+		   params.cryptoctx == NULL) {
+	    session = g_object_new(notmuch_gmime_session_get_type(), NULL);
+	    if (NULL == (params.cryptoctx = g_mime_gpg_context_new(session, "gpg")))
+		fprintf (stderr, "Failed to construct gpg context\n");
+	    else
+		g_mime_gpg_context_set_always_trust((GMimeGpgContext*)params.cryptoctx, FALSE);
+	    g_object_unref (session);
+	    session = NULL;
+	    if (STRNCMP_LITERAL (argv[i], "--decrypt") == 0)
+		params.decryptflag = TRUE;
 	} else if (STRNCMP_LITERAL (argv[i], "--entire-thread") == 0) {
 	    entire_thread = 1;
+	} else if (STRNCMP_LITERAL (argv[i], "--part=") == 0) {
+	    params.part = atoi(argv[i] + sizeof ("--part=") - 1);
 	} else {
 	    fprintf (stderr, "Unrecognized option: %s\n", argv[i]);
 	    return 1;
@@ -688,85 +1048,13 @@ notmuch_show_command (void *ctx, unused (int argc), unused (char *argv[]))
     if (raw)
 	return do_show_raw (ctx, query);
     else
-	return do_show (ctx, query, format, entire_thread);
+	return do_show (ctx, query, format, entire_thread, &params);
 
     notmuch_query_destroy (query);
     notmuch_database_close (notmuch);
 
+    if (params.cryptoctx)
+	g_object_unref(params.cryptoctx);
+
     return 0;
-}
-
-int
-notmuch_part_command (void *ctx, unused (int argc), unused (char *argv[]))
-{
-	notmuch_config_t *config;
-	notmuch_database_t *notmuch;
-	notmuch_query_t *query;
-	notmuch_messages_t *messages;
-	notmuch_message_t *message;
-	char *query_string;
-	int i;
-	int part = 0;
-
-	for (i = 0; i < argc && argv[i][0] == '-'; i++) {
-		if (strcmp (argv[i], "--") == 0) {
-			i++;
-			break;
-		}
-		if (STRNCMP_LITERAL (argv[i], "--part=") == 0) {
-			part = atoi(argv[i] + sizeof ("--part=") - 1);
-		} else {
-			fprintf (stderr, "Unrecognized option: %s\n", argv[i]);
-			return 1;
-		}
-	}
-
-	argc -= i;
-	argv += i;
-
-	config = notmuch_config_open (ctx, NULL, NULL);
-	if (config == NULL)
-		return 1;
-
-	query_string = query_string_from_args (ctx, argc, argv);
-	if (query_string == NULL) {
-		fprintf (stderr, "Out of memory\n");
-		return 1;
-	}
-
-	if (*query_string == '\0') {
-		fprintf (stderr, "Error: notmuch part requires at least one search term.\n");
-		return 1;
-	}
-
-	notmuch = notmuch_database_open (notmuch_config_get_database_path (config),
-					 NOTMUCH_DATABASE_MODE_READ_ONLY);
-	if (notmuch == NULL)
-		return 1;
-
-	query = notmuch_query_create (notmuch, query_string);
-	if (query == NULL) {
-		fprintf (stderr, "Out of memory\n");
-		return 1;
-	}
-
-	if (notmuch_query_count_messages (query) != 1) {
-		fprintf (stderr, "Error: search term did not match precisely one message.\n");
-		return 1;
-	}
-
-	messages = notmuch_query_search_messages (query);
-	message = notmuch_messages_get (messages);
-
-	if (message == NULL) {
-		fprintf (stderr, "Error: cannot find matching message.\n");
-		return 1;
-	}
-
-	show_one_part (notmuch_message_get_filename (message), part);
-
-	notmuch_query_destroy (query);
-	notmuch_database_close (notmuch);
-
-	return 0;
 }

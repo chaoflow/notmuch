@@ -59,6 +59,8 @@ available=$(ls -1 ../ | \
 	   -e "/^(emacs.expected-output|smtp-dummy|smtp-dummy.c|test-verbose)/d" \
 	   -e "/^(test.expected-output|.*~)/d" \
 	   -e "/^(atomicity.gdb)/d" \
+	   -e "/^(gnupg-secret-key.asc)/d" \
+	   -e "/^(gnupg-secret-key.NOTE)/d" \
 	   | sort)
 test_expect_equal "$tests_in_suite" "$available"
 

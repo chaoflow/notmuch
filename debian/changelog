@@ -1,3 +1,14 @@
+notmuch (0.6) unstable; urgency=low
+
+  * new: decryption and signature verification of PGP/MIME parts
+  * new: folder searching with folder path indexing (closes: #597222)
+  * new: improved atomicity during indexing
+  * emacs: various improvements
+  * vim: various improvements
+  * debian: bump standards version (3.9.2)
+
+ -- Jameson Rollins <jrollins@finestructure.net>  Wed, 04 May 2011 18:42:26 -0700
+
 notmuch (0.5) unstable; urgency=low
 
   * new: maildir-flag synchronization

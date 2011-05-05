@@ -358,14 +358,14 @@ elif [ $uname = "Linux" ] ; then
     ldconfig_paths=$(/sbin/ldconfig -N -X -v 2>/dev/null | sed -n -e 's,^\(/.*\):\( (.*)\)\?$,\1,p')
     # Separate ldconfig_paths only on newline (not on any potential
     # embedded space characters in any filenames).
-    OLD_IFS=$IFS
-    IFS="$(printf '\n')"
     for path in $ldconfig_paths; do
 	if [ "$path" = "$libdir_expanded" ]; then
 	    libdir_in_ldconfig=1
 	fi
     done
-    IFS=$OLD_IFS
+    if [ "$libdir_in_ldconfig" = '0' ]; then
+	printf "\tlibdir not found in ldconfig paths.  RPATH variable will be set.\n"
+    fi
 else
     printf "Unknown.\n"
     cat <<EOF

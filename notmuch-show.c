@@ -411,6 +411,7 @@ format_part_text (GMimeObject *part,
 {
     GMimeContentDisposition *disposition;
     GMimeContentType *content_type;
+    const char *filename;
 
     /* Avoid compiler complaints about unused arguments. */
     (void) first;
@@ -458,18 +459,19 @@ format_part_text (GMimeObject *part,
 	return;
     }
 
+    filename = g_mime_part_get_filename (GMIME_PART (part));
+
     disposition = g_mime_object_get_content_disposition (part);
     if (disposition &&
 	strcmp (disposition->disposition, GMIME_DISPOSITION_ATTACHMENT) == 0)
     {
-	const char *filename = g_mime_part_get_filename (GMIME_PART (part));
 	content_type = g_mime_object_get_content_type (GMIME_OBJECT (part));
 
 	printf ("\fattachment{ ID: %d, Content-type: %s\n",
 		*part_count,
 		g_mime_content_type_to_string (content_type));
-	printf ("Attachment: %s (%s)\n", filename,
-		g_mime_content_type_to_string (content_type));
+	if (filename && *filename)
+	    printf ("Attachment: %s\n", filename);
 
 	if (g_mime_content_type_is_type (content_type, "text", "*") &&
 	    !g_mime_content_type_is_type (content_type, "text", "html"))
@@ -487,9 +489,13 @@ format_part_text (GMimeObject *part,
 
     content_type = g_mime_object_get_content_type (GMIME_OBJECT (part));
 
-    printf ("\fpart{ ID: %d, Content-type: %s\n",
+    printf ("\fpart{ ID: %d, Content-type: %s",
 	    *part_count,
 	    g_mime_content_type_to_string (content_type));
+    if (filename && *filename)
+	printf (", Filename: %s\n", filename);
+    else
+	printf ("\n");
 
     if (g_mime_content_type_is_type (content_type, "text", "*") &&
 	!g_mime_content_type_is_type (content_type, "text", "html"))
@@ -583,12 +589,12 @@ format_part_json (GMimeObject *part,
 
 {
     GMimeContentType *content_type;
-    GMimeContentDisposition *disposition;
     GError* err = NULL;
     void *ctx = talloc_new (NULL);
     GMimeStream *stream_memory = g_mime_stream_mem_new ();
     GByteArray *part_content;
     const char *cid;
+    const char *filename;
 
     *part_count += 1;
 
@@ -722,14 +728,9 @@ format_part_json (GMimeObject *part,
 	return;
     }
 
-    disposition = g_mime_object_get_content_disposition (part);
-    if (disposition &&
-	strcmp (disposition->disposition, GMIME_DISPOSITION_ATTACHMENT) == 0)
-    {
-	const char *filename = g_mime_part_get_filename (GMIME_PART (part));
-
+    filename = g_mime_part_get_filename (GMIME_PART (part));
+    if (filename && *filename)
 	printf (", \"filename\": %s", json_quote_str (ctx, filename));
-    }
 
     if (g_mime_content_type_is_type (content_type, "text", "*") &&
 	!g_mime_content_type_is_type (content_type, "text", "html"))

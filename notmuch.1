@@ -303,15 +303,16 @@ matching a single message.
 .B \-\-verify
 
 Compute and report the validity of any MIME cryptographic signatures
-found in the selected content (only works with "--format=json").
+found in the selected content. Only works with "--format=json".
 .RE
 
 .RS 4
 .TP 4
 .B \-\-decrypt
 
-Decrypt any MIME encrypted parts found in the selected content (only
-works with "--format=json", implies "--verify").
+Decrypt any MIME encrypted parts found in the selected content. Only
+works with "--format=json" and "--format=part". With "--format=json",
+implies "--verify".
 
 .RE
 .RS 4

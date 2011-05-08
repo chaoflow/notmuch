@@ -756,12 +756,33 @@ format_part_part (GMimeObject *part,
     GMimeStream *stream_filter = NULL;
     GMimeDataWrapper *wrapper;
     GMimeStream *stream_stdout = g_mime_stream_file_new (stdout);
+    GError* err = NULL;
 
     *part_count += 1;
 
     if (GMIME_IS_MULTIPART (part)) {
 	GMimeMultipart *multipart = GMIME_MULTIPART (part);
 	int i;
+
+	if (params->cryptoctx && params->decryptflag && GMIME_IS_MULTIPART_ENCRYPTED (part)) {
+	    if ( g_mime_multipart_get_count (multipart) != 2 ) {
+		/* this violates RFC 3156 section 4, so we won't bother with it. */
+		fprintf (stderr,
+			 "Error: %d part(s) for a multipart/encrypted message (should be exactly 2)\n",
+			 g_mime_multipart_get_count (multipart));
+	    } else {
+		GMimeMultipartEncrypted *encrypteddata = GMIME_MULTIPART_ENCRYPTED (part);
+		part = g_mime_multipart_encrypted_decrypt (encrypteddata, params->cryptoctx, &err);
+		if (part) {
+		    format_part_part (part, part_count, first, params);
+		    if (err)
+			g_error_free (err);
+		    return;
+		} else {
+		    fprintf (stderr, "Failed to decrypt part: %s\n", (err ? err->message : "no error explanation given"));
+		}
+	    }
+	}
 
 	for (i = 0; i < g_mime_multipart_get_count (multipart); i++) {
 		format_part_part (g_mime_multipart_get_part (multipart, i),

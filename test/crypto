@@ -136,11 +136,16 @@ test_expect_equal \
     "$expected"
 mv "${GNUPGHOME}"{.bak,}
 
-test_begin_subtest "encryption/decryption"
+# create a test encrypted message with attachment
+cat <<EOF >TESTATTACHMENT
+This is a test file.
+EOF
 emacs_deliver_message \
     "test encrypted message 001" \
     "This is a test encrypted message." \
-    "(mml-secure-message-encrypt)"
+    "(mml-attach-file \"TESTATTACHMENT\") (mml-secure-message-encrypt)"
+
+test_begin_subtest "encryption/decryption (json)"
 output=$(notmuch show --format=json --decrypt subject:"test encrypted message 001" \
     | notmuch_json_show_sanitize \
     | sed -e 's|"created": [1234567890]*|"created": 946728000|')
@@ -162,12 +167,26 @@ expected='[[[{"id": "XXXXX",
  "sigstatus": [],
  "content": [
 {"id": 2,
+ "content-type": "multipart/mixed",
+ "content": [
+{"id": 3,
  "content-type": "text/plain",
- "content": "This is a test encrypted message.\n"}]}]},
+ "content": "This is a test encrypted message."},
+{"id": 4,
+ "content-type": "application/octet-stream",
+ "filename": "TESTATTACHMENT"}]}
+]}]},
  []]]]'
 test_expect_equal \
     "$output" \
     "$expected"
+
+test_begin_subtest "encryption/decryption (part)"
+notmuch show \
+    --format=part --part=4 \
+    --decrypt \
+    subject:"test encrypted message 001" >OUTPUT
+test_expect_equal_file OUTPUT TESTATTACHMENT
 
 test_begin_subtest "decryption failure with missing key"
 mv "${GNUPGHOME}"{,.bak}

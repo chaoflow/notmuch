@@ -69,14 +69,11 @@ list."
 	    (push header message-hidden-headers)))
 	notmuch-mua-hidden-headers))
 
-(defun notmuch-mua-reply (query-string &optional decrypt-switch)
+(defun notmuch-mua-reply (query-string)
   (let (headers
 	body
-	(args '("reply"))
-	(decrypt (if decrypt-switch
-		     (not notmuch-crypto-process-mime)
-		   notmuch-crypto-process-mime)))
-    (if decrypt
+	(args '("reply")))
+    (if notmuch-show-process-crypto
 	(setq args (append args '("--decrypt"))))
     (setq args (append args (list query-string)))
     ;; This make assumptions about the output of `notmuch reply', but

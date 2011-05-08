@@ -296,18 +296,20 @@ message at DEPTH in the current thread."
 ;; Functions handling particular MIME parts.
 
 (defun notmuch-show-save-part (message-id nth &optional filename)
-  (with-temp-buffer
-    ;; Always acquires the part via `notmuch part', even if it is
-    ;; available in the JSON output.
-    (insert (notmuch-show-get-bodypart-internal message-id nth))
-    (let ((file (read-file-name
-		 "Filename to save as: "
-		 (or mailcap-download-directory "~/")
-		 nil nil
-		 filename))
-	  (require-final-newline nil)
-          (coding-system-for-write 'no-conversion))
-      (write-region (point-min) (point-max) file))))
+  (let ((process-crypto notmuch-show-process-crypto))
+    (with-temp-buffer
+      (setq notmuch-show-process-crypto process-crypto)
+      ;; Always acquires the part via `notmuch part', even if it is
+      ;; available in the JSON output.
+      (insert (notmuch-show-get-bodypart-internal message-id nth))
+      (let ((file (read-file-name
+		   "Filename to save as: "
+		   (or mailcap-download-directory "~/")
+		   nil nil
+		   filename))
+	    (require-final-newline nil)
+	    (coding-system-for-write 'no-conversion))
+	(write-region (point-min) (point-max) file)))))
 
 (defun notmuch-show-mm-display-part-inline (msg part content-type content)
   "Use the mm-decode/mm-view functions to display a part in the
@@ -592,13 +594,20 @@ current buffer, if possible."
 
 ;; Helper for parts which are generally not included in the default
 ;; JSON output.
-
+;; Uses the buffer-local variable notmuch-show-process-crypto to
+;; determine if parts should be decrypted first.
 (defun notmuch-show-get-bodypart-internal (message-id part-number)
-  (with-temp-buffer
-    (let ((coding-system-for-read 'no-conversion))
-      (call-process notmuch-command nil t nil
-		    "show" "--format=part" (format "--part=%s" part-number) message-id)
-      (buffer-string))))
+  (let ((args '("show" "--format=part"))
+	(part-arg (format "--part=%s" part-number)))
+    (setq args (append args (list part-arg)))
+    (if notmuch-show-process-crypto
+	(setq args (append args '("--decrypt"))))
+    (setq args (append args (list message-id)))
+    (with-temp-buffer
+      (let ((coding-system-for-read 'no-conversion))
+	(progn
+	  (apply 'call-process (append (list notmuch-command nil (list t nil) nil) args))
+	  (buffer-string))))))
 
 (defun notmuch-show-get-bodypart-content (msg part nth)
   (or (plist-get part :content)
@@ -752,6 +761,7 @@ current buffer, if possible."
   (mapc '(lambda (thread) (notmuch-show-insert-thread thread 0)) forest))
 
 (defvar notmuch-show-parent-buffer nil)
+(defvar notmuch-show-process-crypto nil)
 
 ;;;###autoload
 (defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name crypto-switch)
@@ -781,6 +791,7 @@ function is used. "
     (switch-to-buffer buffer)
     (notmuch-show-mode)
     (set (make-local-variable 'notmuch-show-parent-buffer) parent-buffer)
+    (set (make-local-variable 'notmuch-show-process-crypto) process-crypto)
     (erase-buffer)
     (goto-char (point-min))
     (save-excursion
@@ -788,13 +799,13 @@ function is used. "
 	     (args (if query-context
 		       (append (list "\'") basic-args (list "and (" query-context ")\'"))
 		     (append (list "\'") basic-args (list "\'")))))
-	(notmuch-show-insert-forest (notmuch-query-get-threads args process-crypto))
+	(notmuch-show-insert-forest (notmuch-query-get-threads args))
 	;; If the query context reduced the results to nothing, run
 	;; the basic query.
 	(when (and (eq (buffer-size) 0)
 		   query-context)
 	  (notmuch-show-insert-forest
-	   (notmuch-query-get-threads basic-args process-crypto))))
+	   (notmuch-query-get-threads basic-args))))
 
       ;; Enable buttonisation of URLs and email addresses in the
       ;; buffer.

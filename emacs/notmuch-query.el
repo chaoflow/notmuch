@@ -22,7 +22,7 @@
 (require 'notmuch-lib)
 (require 'json)
 
-(defun notmuch-query-get-threads (search-terms &optional process-crypto)
+(defun notmuch-query-get-threads (search-terms)
   "Return a list of threads of messages matching SEARCH-TERMS.
 
 A thread is a forest or list of trees. A tree is a two element
@@ -33,7 +33,7 @@ is a possibly empty forest of replies.
 	 (json-object-type 'plist)
 	 (json-array-type 'list)
 	 (json-false 'nil))
-    (if process-crypto
+    (if notmuch-show-process-crypto
 	(setq args (append args '("--decrypt"))))
     (setq args (append args search-terms))
     (with-temp-buffer

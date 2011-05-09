@@ -761,6 +761,7 @@ current buffer, if possible."
   (mapc '(lambda (thread) (notmuch-show-insert-thread thread 0)) forest))
 
 (defvar notmuch-show-parent-buffer nil)
+(make-variable-buffer-local 'notmuch-show-parent-buffer)
 
 ;;;###autoload
 (defun notmuch-show (thread-id &optional parent-buffer query-context buffer-name crypto-switch)
@@ -789,7 +790,7 @@ function is used. "
 	(inhibit-read-only t))
     (switch-to-buffer buffer)
     (notmuch-show-mode)
-    (set (make-local-variable 'notmuch-show-parent-buffer) parent-buffer)
+    (setq notmuch-show-parent-buffer parent-buffer)
     (setq notmuch-show-process-crypto process-crypto)
     (erase-buffer)
     (goto-char (point-min))

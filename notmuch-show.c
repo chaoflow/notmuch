@@ -570,7 +570,7 @@ format_sigstatus_json (const GMimeSignatureValidity* validity)
 	    }
 	} else {
 	    if (signer->keyid)
-		printf (",\"keyid\": %s", json_quote_str (ctx_quote, signer->keyid));
+		printf (", \"keyid\": %s", json_quote_str (ctx_quote, signer->keyid));
 	}
 	if (signer->errors != GMIME_SIGNER_ERROR_NONE) {
 	    printf (", \"errors\": %x\n", signer->errors);

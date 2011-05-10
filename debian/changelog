@@ -3,11 +3,14 @@ notmuch (0.6) unstable; urgency=low
   * new: decryption and signature verification of PGP/MIME parts
   * new: folder searching with folder path indexing (closes: #597222)
   * new: improved atomicity during indexing
+  * bugfix: sanitize of header fields for notmuch search text output
+  * bugfix: plug memory leaks
+  * bugfix: specify filename for inline attachments
   * emacs: various improvements and bug fixes
   * vim: various improvements
   * debian: bump standards version (3.9.2)
 
- -- Jameson Rollins <jrollins@finestructure.net>  Mon, 09 May 2011 09:58:03 -0700
+ -- Jameson Rollins <jrollins@finestructure.net>  Tue, 10 May 2011 09:33:22 -0700
 
 notmuch (0.5) unstable; urgency=low
 

@@ -554,19 +554,19 @@ format_sigstatus_json (const GMimeSignatureValidity* validity)
 	if (signer->status == GMIME_SIGNER_STATUS_GOOD)
 	{
 	    if (signer->fingerprint)
-		printf (",\"fingerprint\": %s", json_quote_str (ctx_quote, signer->fingerprint));
+		printf (", \"fingerprint\": %s", json_quote_str (ctx_quote, signer->fingerprint));
 	    /* these dates are seconds since the epoch; should we
 	     * provide a more human-readable format string? */
 	    if (signer->created)
-		printf (",\"created\": %d", (int) signer->created);
+		printf (", \"created\": %d", (int) signer->created);
 	    if (signer->expires)
-		printf (",\"expires\": %d", (int) signer->expires);
+		printf (", \"expires\": %d", (int) signer->expires);
 	    /* output user id only if validity is FULL or ULTIMATE. */
 	    /* note that gmime is using the term "trust" here, which
 	     * is WRONG.  It's actually user id "validity". */
 	    if ((signer->name) && (signer->trust)) {
 		if ((signer->trust == GMIME_SIGNER_TRUST_FULLY) || (signer->trust == GMIME_SIGNER_TRUST_ULTIMATE))
-		    printf (",\"userid\": %s", json_quote_str (ctx_quote, signer->name));
+		    printf (", \"userid\": %s", json_quote_str (ctx_quote, signer->name));
 	    }
 	} else {
 	    if (signer->keyid)

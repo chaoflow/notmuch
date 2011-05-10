@@ -122,7 +122,8 @@ expected='[[[{"id": "XXXXX",
  "Date": "01 Jan 2000 12:00:00 -0000"},
  "body": [{"id": 1,
  "content-type": "multipart/signed",
- "sigstatus": [{"status": "error","keyid": "'$(echo $FINGERPRINT | cut -c 25-)'",
+ "sigstatus": [{"status": "error",
+ "keyid": "'$(echo $FINGERPRINT | cut -c 25-)'",
  "errors": 2
 }],
  "content": [
@@ -298,7 +299,10 @@ expected='[[[{"id": "XXXXX",
  "Date": "01 Jan 2000 12:00:00 -0000"},
  "body": [{"id": 1,
  "content-type": "multipart/signed",
- "sigstatus": [],
+ "sigstatus": [{"status": "error",
+ "keyid": "6D92612D94E46381",
+ "errors": 8
+}],
  "content": [
 {"id": 2,
  "content-type": "text/plain",

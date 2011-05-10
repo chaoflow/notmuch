@@ -120,8 +120,10 @@ let g:notmuch_search_maps = {
         \ '<Space>':    ':call <SID>NM_search_show_thread(0)<CR>',
         \ '<Enter>':    ':call <SID>NM_search_show_thread(1)<CR>',
         \ '<C-]>':      ':call <SID>NM_search_expand(''<cword>'')<CR>',
+        \ 'I':          ':call <SID>NM_search_mark_read_thread()<CR>',
         \ 'a':          ':call <SID>NM_search_archive_thread()<CR>',
         \ 'A':          ':call <SID>NM_search_mark_read_then_archive_thread()<CR>',
+        \ 'D':          ':call <SID>NM_search_delete_thread()<CR>',
         \ 'f':          ':call <SID>NM_search_filter()<CR>',
         \ 'm':          ':call <SID>NM_new_mail()<CR>',
         \ 'o':          ':call <SID>NM_search_toggle_order()<CR>',
@@ -149,8 +151,11 @@ let g:notmuch_show_maps = {
         \ 'h':          ':call <SID>NM_show_fold_toggle(''h'', ''hdr'', !g:notmuch_show_fold_headers)<CR>',
         \ 'i':          ':call <SID>NM_show_fold_toggle(''s'', ''sig'', !g:notmuch_show_fold_signatures)<CR>',
         \
+        \ 'I':          ':call <SID>NM_show_mark_read_thread()<CR>',
         \ 'a':          ':call <SID>NM_show_archive_thread()<CR>',
         \ 'A':          ':call <SID>NM_show_mark_read_then_archive_thread()<CR>',
+        \ 'D':          ':call <SID>NM_show_delete_thread()<CR>',
+        \ 'd':          ':call <SID>NM_show_delete_message()<CR>',
         \ 'N':          ':call <SID>NM_show_mark_read_then_next_open_message()<CR>',
         \ 'v':          ':call <SID>NM_show_view_all_mime_parts()<CR>',
         \ '+':          ':call <SID>NM_show_add_tag()<CR>',
@@ -309,6 +314,11 @@ function! s:NM_search_edit()
         endif
 endfunction
 
+function! s:NM_search_mark_read_thread()
+        call <SID>NM_tag([], ['-unread'])
+        norm j
+endfunction
+
 function! s:NM_search_archive_thread()
         call <SID>NM_tag([], ['-inbox'])
         norm j
@@ -316,6 +326,11 @@ endfunction
 
 function! s:NM_search_mark_read_then_archive_thread()
         call <SID>NM_tag([], ['-unread', '-inbox'])
+        norm j
+endfunction
+
+function! s:NM_search_delete_thread()
+        call <SID>NM_tag([], ['+delete','-inbox','-unread'])
         norm j
 endfunction
 
@@ -496,6 +511,11 @@ function! s:NM_show_next_thread()
         endif
 endfunction
 
+function! s:NM_show_mark_read_thread()
+        call <SID>NM_tag(b:nm_search_words, ['-unread'])
+        call <SID>NM_show_next_thread()
+endfunction
+
 function! s:NM_show_archive_thread()
         call <SID>NM_tag(b:nm_search_words, ['-inbox'])
         call <SID>NM_show_next_thread()
@@ -504,6 +524,16 @@ endfunction
 function! s:NM_show_mark_read_then_archive_thread()
         call <SID>NM_tag(b:nm_search_words, ['-unread', '-inbox'])
         call <SID>NM_show_next_thread()
+endfunction
+
+function! s:NM_show_delete_thread()
+        call <SID>NM_tag(b:nm_search_words, ['+delete', '-inbox', '-unread'])
+        call <SID>NM_show_next_thread()
+endfunction
+
+function! s:NM_show_delete_message()
+        let msg = <SID>NM_show_get_message_for_line(line('.'))
+        call <SID>NM_tag([msg['id']], ['+delete', '-inbox', '-unread'])
 endfunction
 
 function! s:NM_show_mark_read_then_next_open_message()

@@ -20,6 +20,7 @@
 ;; Authors: David Edmondson <dme@dme.org>
 
 (require 'message)
+(require 'ido)
 
 ;;
 
@@ -46,19 +47,29 @@ line."
 
 (defun notmuch-address-expand-name ()
   (let* ((end (point))
+	 (ido-mode 
+	  ;; Kludge to trigger the ido initialization, without this
+	  ;; the completion would not work at all.
+	  (if (null ido-mode)
+	      (progn
+		(ido-mode t)
+		(ido-mode nil)
+		t)
+	    ido-mode))
+	 (ido-enable-flex-matching t)
 	 (beg (save-excursion
-		(re-search-backward "\\(\\`\\|[\n:,]\\)[ \t]*")
-		(goto-char (match-end 0))
-		(point)))
+		(save-match-data
+		  (re-search-backward "\\(\\`\\|[\n:,]\\)[ \t]*")
+		  (match-end 0))))
 	 (orig (buffer-substring-no-properties beg end))
 	 (completion-ignore-case t)
 	 (options (notmuch-address-options orig))
 	 (num-options (length options))
 	 (chosen (if (eq num-options 1)
 		     (car options)
-		   (completing-read (format "Address (%s matches): " num-options)
-				    (cdr options) nil nil (car options)
-				    'notmuch-address-history))))
+		   (ido-completing-read (format "Address (%s matches): " num-options)
+					options nil nil orig
+					'notmuch-address-history))))
     (when chosen
       (push chosen notmuch-address-history)
       (delete-region beg end)
